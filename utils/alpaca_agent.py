@@ -191,8 +191,8 @@ model = ChatOpenAI(
     model=os.getenv("XAI_MODEL_NAME", "grok-beta"),
     temperature=0.7,
     streaming=True,
-    openai_api_key=os.getenv("XAI_API_KEY"),
-    openai_api_base="https://api.x.ai/v1"
+    api_key=os.getenv("XAI_API_KEY"),
+    base_url="https://api.x.ai/v1"
 ).bind_tools(tools)
 
 # Create tool node

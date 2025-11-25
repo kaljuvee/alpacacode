@@ -329,3 +329,142 @@ def backtest_vix_strategy(symbols: List[str], start_date: datetime, end_date: da
     metrics = calculate_metrics(trades_df, initial_capital, start_date, end_date)
     
     return trades_df, metrics
+
+
+def backtest_momentum_strategy(
+    symbols: List[str],
+    start_date: datetime,
+    end_date: datetime,
+    initial_capital: float = 10000,
+    position_size_pct: float = 10.0,
+    lookback_period: int = 20,
+    momentum_threshold: float = 5.0,
+    hold_days: int = 5,
+    take_profit_pct: Optional[float] = 10.0,
+    stop_loss_pct: Optional[float] = 5.0
+) -> Dict:
+    """
+    Backtest momentum trading strategy
+    
+    Strategy Logic:
+    - Buy when stock shows strong upward momentum (price increase > threshold over lookback period)
+    - Hold for specified number of days or until take profit/stop loss hit
+    - Exit at take profit or stop loss if set
+    
+    Args:
+        symbols: List of stock symbols to trade
+        start_date: Backtest start date
+        end_date: Backtest end date
+        initial_capital: Starting capital
+        position_size_pct: Percentage of capital per trade
+        lookback_period: Days to look back for momentum calculation
+        momentum_threshold: Minimum momentum percentage to trigger buy
+        hold_days: Number of days to hold position
+        take_profit_pct: Take profit percentage (optional)
+        stop_loss_pct: Stop loss percentage (optional)
+        
+    Returns:
+        Dictionary with backtest results and metrics
+    """
+    
+    trades = []
+    capital = initial_capital
+    
+    for symbol in symbols:
+        try:
+            # Download historical data
+            ticker = yf.Ticker(symbol)
+            historical = ticker.history(start=start_date, end=end_date)
+            
+            if historical.empty:
+                continue
+            
+            # Iterate through dates
+            for i in range(lookback_period, len(historical)):
+                current_date = historical.index[i]
+                
+                # Calculate momentum
+                lookback_start_price = float(historical['Close'].iloc[i - lookback_period])
+                current_price = float(historical['Close'].iloc[i])
+                momentum_pct = ((current_price - lookback_start_price) / lookback_start_price) * 100
+                
+                # Check if momentum threshold is met
+                if momentum_pct >= momentum_threshold:
+                    # Calculate position size
+                    position_value = capital * (position_size_pct / 100)
+                    shares = int(position_value / current_price)
+                    
+                    if shares > 0:
+                        entry_price = current_price
+                        entry_date = current_date
+                        
+                        # Calculate exit levels
+                        target_price = entry_price * (1 + take_profit_pct / 100) if take_profit_pct else None
+                        stop_price = entry_price * (1 - stop_loss_pct / 100) if stop_loss_pct else None
+                        
+                        # Look for exit
+                        exit_date = None
+                        exit_price = None
+                        exit_reason = 'hold_period'
+                        
+                        # Check future prices for exit
+                        future_data = historical.iloc[i+1:min(i+1+hold_days, len(historical))]
+                        
+                        for j, row in enumerate(future_data.iterrows()):
+                            date, data = row
+                            
+                            # Check take profit
+                            if target_price and float(data['High']) >= target_price:
+                                exit_date = date
+                                exit_price = target_price
+                                exit_reason = 'take_profit'
+                                break
+                            
+                            # Check stop loss
+                            if stop_price and float(data['Low']) <= stop_price:
+                                exit_date = date
+                                exit_price = stop_price
+                                exit_reason = 'stop_loss'
+                                break
+                        
+                        # If no exit triggered, exit at end of hold period
+                        if exit_date is None and len(future_data) > 0:
+                            exit_date = future_data.index[-1]
+                            exit_price = float(future_data['Close'].iloc[-1])
+                        
+                        # Record trade if exit found
+                        if exit_date and exit_price:
+                            pnl = (exit_price - entry_price) * shares
+                            capital += pnl
+                            
+                            trades.append({
+                                'symbol': symbol,
+                                'entry_date': entry_date,
+                                'exit_date': exit_date,
+                                'entry_price': entry_price,
+                                'exit_price': exit_price,
+                                'shares': shares,
+                                'pnl': pnl,
+                                'return_pct': ((exit_price - entry_price) / entry_price) * 100,
+                                'capital_after': capital,
+                                'exit_reason': exit_reason,
+                                'momentum_pct': momentum_pct
+                            })
+        
+        except Exception as e:
+            print(f"Error processing {symbol}: {str(e)}")
+            continue
+    
+    # Convert trades to DataFrame
+    trades_df = pd.DataFrame(trades)
+    
+    # Calculate metrics
+    metrics = calculate_metrics(trades_df, initial_capital, start_date, end_date)
+    
+    return {
+        'trades': trades_df,
+        'metrics': metrics,
+        'initial_capital': initial_capital,
+        'final_capital': capital,
+        'strategy': 'momentum'
+    }

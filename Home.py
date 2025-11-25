@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from utils.backtester_util import backtest_buy_the_dip
+from utils.backtester_util import backtest_buy_the_dip, backtest_momentum_strategy
 from dotenv import load_dotenv
 import os
 
@@ -22,16 +22,16 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📈 Strategy Simulator - Buy The Dip")
+st.title("📈 Strategy Simulator")
 st.markdown("Backtest and analyze trading strategies with real market data")
 
 # Sidebar configuration
 st.sidebar.header("Strategy Configuration")
 
-# Strategy selection (currently only buy-the-dip)
+# Strategy selection
 strategy_type = st.sidebar.selectbox(
     "Strategy Type",
-    ["buy-the-dip"],
+    ["buy-the-dip", "momentum"],
     help="Select the trading strategy to backtest"
 )
 
@@ -144,41 +144,87 @@ position_size = st.sidebar.slider(
 st.sidebar.markdown("---")
 st.sidebar.subheader("Strategy Parameters")
 
-# Buy-the-dip specific parameters
-dip_threshold = st.sidebar.slider(
-    "Dip Threshold (%)",
-    min_value=1.0,
-    max_value=10.0,
-    value=2.0,
-    step=0.5,
-    help="Percentage drop from recent high to trigger buy"
-)
+if strategy_type == "buy-the-dip":
+    # Buy-the-dip specific parameters
+    dip_threshold = st.sidebar.slider(
+        "Dip Threshold (%)",
+        min_value=1.0,
+        max_value=10.0,
+        value=2.0,
+        step=0.5,
+        help="Percentage drop from recent high to trigger buy"
+    )
+    
+    hold_days = st.sidebar.number_input(
+        "Hold Days",
+        min_value=1,
+        max_value=30,
+        value=1,
+        help="Number of days to hold position"
+    )
+    
+    take_profit = st.sidebar.slider(
+        "Take Profit (%)",
+        min_value=0.5,
+        max_value=10.0,
+        value=1.0,
+        step=0.1,
+        help="Percentage gain to take profit"
+    )
+    
+    stop_loss = st.sidebar.slider(
+        "Stop Loss (%)",
+        min_value=0.1,
+        max_value=5.0,
+        value=0.5,
+        step=0.1,
+        help="Percentage loss to stop out"
+    )
 
-hold_days = st.sidebar.number_input(
-    "Hold Days",
-    min_value=1,
-    max_value=30,
-    value=1,
-    help="Number of days to hold position"
-)
-
-take_profit = st.sidebar.slider(
-    "Take Profit (%)",
-    min_value=0.5,
-    max_value=10.0,
-    value=1.0,
-    step=0.1,
-    help="Percentage gain to take profit"
-)
-
-stop_loss = st.sidebar.slider(
-    "Stop Loss (%)",
-    min_value=0.1,
-    max_value=5.0,
-    value=0.5,
-    step=0.1,
-    help="Percentage loss to stop out"
-)
+elif strategy_type == "momentum":
+    # Momentum strategy specific parameters
+    lookback_period = st.sidebar.number_input(
+        "Lookback Period (days)",
+        min_value=5,
+        max_value=60,
+        value=20,
+        help="Number of days to look back for momentum calculation"
+    )
+    
+    momentum_threshold = st.sidebar.slider(
+        "Momentum Threshold (%)",
+        min_value=1.0,
+        max_value=20.0,
+        value=5.0,
+        step=0.5,
+        help="Minimum momentum percentage to trigger buy"
+    )
+    
+    hold_days = st.sidebar.number_input(
+        "Hold Days",
+        min_value=1,
+        max_value=30,
+        value=5,
+        help="Number of days to hold position"
+    )
+    
+    take_profit = st.sidebar.slider(
+        "Take Profit (%)",
+        min_value=1.0,
+        max_value=20.0,
+        value=10.0,
+        step=1.0,
+        help="Percentage gain to take profit"
+    )
+    
+    stop_loss = st.sidebar.slider(
+        "Stop Loss (%)",
+        min_value=1.0,
+        max_value=10.0,
+        value=5.0,
+        step=0.5,
+        help="Percentage loss to stop out"
+    )
 
 # Main content area
 if len(selected_symbols) == 0:
@@ -202,18 +248,32 @@ if st.button("🚀 Run Backtest", type="primary", use_container_width=True):
     
     with st.spinner("Running backtest... This may take a moment."):
         try:
-            # Run backtest
-            results = backtest_buy_the_dip(
-                symbols=selected_symbols,
-                start_date=datetime.combine(start_date, datetime.min.time()),
-                end_date=datetime.combine(end_date, datetime.max.time()),
-                initial_capital=initial_capital,
-                position_size=position_size / 100,
-                dip_threshold=dip_threshold / 100,
-                hold_days=hold_days,
-                take_profit=take_profit / 100,
-                stop_loss=stop_loss / 100
-            )
+            # Run backtest based on strategy type
+            if strategy_type == "buy-the-dip":
+                results = backtest_buy_the_dip(
+                    symbols=selected_symbols,
+                    start_date=datetime.combine(start_date, datetime.min.time()),
+                    end_date=datetime.combine(end_date, datetime.max.time()),
+                    initial_capital=initial_capital,
+                    position_size=position_size / 100,
+                    dip_threshold=dip_threshold / 100,
+                    hold_days=hold_days,
+                    take_profit=take_profit / 100,
+                    stop_loss=stop_loss / 100
+                )
+            elif strategy_type == "momentum":
+                results = backtest_momentum_strategy(
+                    symbols=selected_symbols,
+                    start_date=datetime.combine(start_date, datetime.min.time()),
+                    end_date=datetime.combine(end_date, datetime.max.time()),
+                    initial_capital=initial_capital,
+                    position_size_pct=position_size,
+                    lookback_period=lookback_period,
+                    momentum_threshold=momentum_threshold,
+                    hold_days=hold_days,
+                    take_profit_pct=take_profit,
+                    stop_loss_pct=stop_loss
+                )
             
             if results is None:
                 st.error("❌ No trades were generated during the backtest period. Try adjusting parameters or date range.")

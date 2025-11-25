@@ -188,7 +188,7 @@ Remember to:
 
 # Initialize the model with XAI API
 model = ChatOpenAI(
-    model=os.getenv("XAI_MODEL_NAME", "grok-beta"),
+    model=os.getenv("GROK_MODEL", "grok-4"),
     temperature=0.7,
     streaming=True,
     api_key=os.getenv("XAI_API_KEY"),

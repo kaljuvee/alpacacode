@@ -10,6 +10,38 @@ from typing import Dict, List, Tuple, Optional
 import yfinance as yf
 
 
+def get_intraday_data(ticker: str, interval: str = '1d', period: str = '30d') -> pd.DataFrame:
+    """
+    Fetch intraday or daily data from yfinance
+    
+    Args:
+        ticker: Stock symbol
+        interval: Data interval ('1d', '60m', '30m', '15m', '5m')
+        period: Time period ('30d', '7d', '1d')
+    
+    Returns:
+        DataFrame with OHLCV data
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        df = stock.history(period=period, interval=interval)
+        
+        if df.empty:
+            print(f"Warning: No data returned for {ticker} with interval {interval}")
+            return pd.DataFrame()
+        
+        # Ensure timezone-aware datetime index
+        if df.index.tz is None:
+            df.index = df.index.tz_localize('UTC')
+        else:
+            df.index = df.index.tz_convert('UTC')
+        
+        return df
+    except Exception as e:
+        print(f"Error fetching data for {ticker}: {str(e)}")
+        return pd.DataFrame()
+
+
 def calculate_metrics(trades_df: pd.DataFrame, initial_capital: float, 
                      start_date: datetime, end_date: datetime) -> Dict:
     """Calculate backtest performance metrics"""
@@ -81,7 +113,8 @@ def get_historical_data(symbols: List[str], start_date: datetime,
 def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: datetime,
                         initial_capital: float = 10000, position_size: float = 0.1,
                         dip_threshold: float = 0.02, hold_days: int = 1,
-                        take_profit: float = 0.01, stop_loss: float = 0.005) -> Tuple[pd.DataFrame, Dict]:
+                        take_profit: float = 0.01, stop_loss: float = 0.005,
+                        interval: str = '1d', data_source: str = 'yfinance') -> Tuple[pd.DataFrame, Dict]:
     """
     Backtest buy-the-dip strategy
     
@@ -95,22 +128,49 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
         initial_capital: Starting capital
         position_size: Fraction of capital to use per trade
         dip_threshold: Percentage drop to trigger buy (e.g., 0.02 = 2%)
-        hold_days: Days to hold position
+        hold_days: Days/periods to hold position
         take_profit: Take profit percentage (e.g., 0.01 = 1%)
         stop_loss: Stop loss percentage (e.g., 0.005 = 0.5%)
+        interval: Data interval ('1d', '60m', '30m', '15m', '5m')
+        data_source: Data source ('yfinance' or 'polygon')
     
     Returns:
         Tuple of (trades_df, metrics_dict)
     """
     
-    # Fetch historical data
-    price_data = get_historical_data(symbols, start_date - timedelta(days=30), end_date)
+    # Determine period based on interval
+    if interval == '1d':
+        period = '30d'
+        lookback_periods = 20
+    else:
+        period = '30d'  # For intraday, use 30 days
+        lookback_periods = 20  # 20 periods lookback
+    
+    # Fetch data based on source
+    if data_source == 'yfinance' and interval != '1d':
+        # Use intraday data from yfinance
+        price_data = {}
+        for symbol in symbols:
+            df = get_intraday_data(symbol, interval=interval, period=period)
+            if not df.empty:
+                price_data[symbol] = df
+    else:
+        # Use daily data
+        price_data = get_historical_data(symbols, start_date - timedelta(days=30), end_date)
     
     if not price_data:
         return None
     
     trades = []
     capital = initial_capital
+    
+    # Make start_date and end_date timezone-aware for intraday data
+    if interval != '1d':
+        import pytz
+        if start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=pytz.UTC)
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=pytz.UTC)
     
     # Iterate through each trading day
     current_date = start_date
@@ -124,11 +184,11 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
             
             # Get data up to current date
             historical = df[df.index <= current_date]
-            if len(historical) < 20:  # Need at least 20 days of history
+            if len(historical) < lookback_periods:  # Need minimum history
                 continue
             
-            # Calculate 20-day high
-            recent_high = float(historical['High'].tail(20).max())
+            # Calculate recent high over lookback period
+            recent_high = float(historical['High'].tail(lookback_periods).max())
             current_price = float(historical['Close'].iloc[-1])
             
             # Check if we have a dip
@@ -205,7 +265,17 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                     'dip_pct': dip_pct * 100
                 })
         
-        current_date += timedelta(days=1)
+        # Increment based on interval
+        if interval == '1d':
+            current_date += timedelta(days=1)
+        elif interval == '60m':
+            current_date += timedelta(hours=1)
+        elif interval == '30m':
+            current_date += timedelta(minutes=30)
+        elif interval == '15m':
+            current_date += timedelta(minutes=15)
+        elif interval == '5m':
+            current_date += timedelta(minutes=5)
     
     if not trades:
         return None
@@ -341,7 +411,9 @@ def backtest_momentum_strategy(
     momentum_threshold: float = 5.0,
     hold_days: int = 5,
     take_profit_pct: Optional[float] = 10.0,
-    stop_loss_pct: Optional[float] = 5.0
+    stop_loss_pct: Optional[float] = 5.0,
+    interval: str = '1d',
+    data_source: str = 'yfinance'
 ) -> Dict:
     """
     Backtest momentum trading strategy
@@ -372,11 +444,14 @@ def backtest_momentum_strategy(
     
     for symbol in symbols:
         try:
-            # Download historical data
-            ticker = yf.Ticker(symbol)
-            historical = ticker.history(start=start_date, end=end_date)
+            # Download historical data based on interval
+            if data_source == 'yfinance' and interval != '1d':
+                historical = get_intraday_data(symbol, interval=interval, period='30d')
+            else:
+                ticker = yf.Ticker(symbol)
+                historical = ticker.history(start=start_date, end=end_date)
             
-            if historical.empty:
+            if historical is None or (isinstance(historical, pd.DataFrame) and historical.empty):
                 continue
             
             # Iterate through dates
@@ -463,10 +538,10 @@ def backtest_momentum_strategy(
             continue
     
     # Convert trades to DataFrame
-    trades_df = pd.DataFrame(trades)
-    
-    if trades_df.empty:
+    if not trades:
         return None
+    
+    trades_df = pd.DataFrame(trades)
     
     # Calculate metrics
     metrics = calculate_metrics(trades_df, initial_capital, start_date, end_date)

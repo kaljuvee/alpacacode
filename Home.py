@@ -106,6 +106,24 @@ selected_names = st.sidebar.multiselect(
 selected_symbols = [all_options[name] for name in selected_names]
 
 st.sidebar.markdown("---")
+st.sidebar.subheader("Data Configuration")
+
+# Data source selection
+data_source = st.sidebar.selectbox(
+    "Data Source",
+    ["yfinance"],
+    help="Data source for historical prices"
+)
+
+# Frequency/interval selection
+interval = st.sidebar.selectbox(
+    "Data Frequency",
+    ["1d", "60m", "30m", "15m", "5m"],
+    index=0,
+    help="Time interval for price data (intraday requires yfinance)"
+)
+
+st.sidebar.markdown("---")
 st.sidebar.subheader("Backtest Parameters")
 
 # Date range
@@ -259,7 +277,9 @@ if st.button("🚀 Run Backtest", type="primary", use_container_width=True):
                     dip_threshold=dip_threshold / 100,
                     hold_days=hold_days,
                     take_profit=take_profit / 100,
-                    stop_loss=stop_loss / 100
+                    stop_loss=stop_loss / 100,
+                    interval=interval,
+                    data_source=data_source
                 )
             elif strategy_type == "momentum":
                 results = backtest_momentum_strategy(
@@ -272,7 +292,9 @@ if st.button("🚀 Run Backtest", type="primary", use_container_width=True):
                     momentum_threshold=momentum_threshold,
                     hold_days=hold_days,
                     take_profit_pct=take_profit,
-                    stop_loss_pct=stop_loss
+                    stop_loss_pct=stop_loss,
+                    interval=interval,
+                    data_source=data_source
                 )
             
             if results is None:

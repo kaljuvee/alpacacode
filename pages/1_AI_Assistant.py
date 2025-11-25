@@ -38,11 +38,7 @@ client = OpenAI(
 if 'messages' not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar with sample strategies
-st.sidebar.header("📚 Sample Strategies")
-st.sidebar.markdown("Click a button to analyze a common trading strategy:")
-
-# Sample strategy buttons
+# Sample strategy buttons (will be displayed in main pane)
 sample_strategies = {
     "Moving Average Crossover": """
     Analyze the Moving Average Crossover strategy:
@@ -117,24 +113,96 @@ sample_strategies = {
     """
 }
 
-for strategy_name, strategy_prompt in sample_strategies.items():
-    if st.sidebar.button(strategy_name, use_container_width=True):
-        # Add user message to chat
-        st.session_state.messages.append({
-            "role": "user",
-            "content": strategy_prompt
-        })
-        st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("💡 Tips")
+# Sidebar tips
+st.sidebar.header("💡 Tips")
 st.sidebar.markdown("""
+- Click a strategy button to analyze it
 - Ask about strategy performance metrics
 - Request backtesting code examples
 - Compare multiple strategies
 - Get risk management advice
 - Ask for strategy optimization ideas
 """)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Example Questions")
+st.sidebar.markdown("""
+- "How do I implement a momentum strategy?"
+- "What are the best indicators for day trading?"
+- "Compare RSI vs MACD strategies"
+- "How to backtest a strategy in Python?"
+- "What's a good Sharpe ratio?"
+""")
+
+# Main content - Sample Strategies Grid
+st.subheader("📚 Sample Strategies")
+st.markdown("Click a button to analyze a common trading strategy:")
+
+# Create 3 rows x 3 columns grid for strategy buttons (8 strategies total)
+row1_col1, row1_col2, row1_col3 = st.columns(3)
+row2_col1, row2_col2, row2_col3 = st.columns(3)
+row3_col1, row3_col2, row3_col3 = st.columns(3)
+
+strategy_items = list(sample_strategies.items())
+
+# Row 1
+with row1_col1:
+    if len(strategy_items) > 0:
+        strategy_name, strategy_prompt = strategy_items[0]
+        if st.button(strategy_name, use_container_width=True, key="btn_0"):
+            st.session_state.messages.append({"role": "user", "content": strategy_prompt})
+            st.rerun()
+
+with row1_col2:
+    if len(strategy_items) > 1:
+        strategy_name, strategy_prompt = strategy_items[1]
+        if st.button(strategy_name, use_container_width=True, key="btn_1"):
+            st.session_state.messages.append({"role": "user", "content": strategy_prompt})
+            st.rerun()
+
+with row1_col3:
+    if len(strategy_items) > 2:
+        strategy_name, strategy_prompt = strategy_items[2]
+        if st.button(strategy_name, use_container_width=True, key="btn_2"):
+            st.session_state.messages.append({"role": "user", "content": strategy_prompt})
+            st.rerun()
+
+# Row 2
+with row2_col1:
+    if len(strategy_items) > 3:
+        strategy_name, strategy_prompt = strategy_items[3]
+        if st.button(strategy_name, use_container_width=True, key="btn_3"):
+            st.session_state.messages.append({"role": "user", "content": strategy_prompt})
+            st.rerun()
+
+with row2_col2:
+    if len(strategy_items) > 4:
+        strategy_name, strategy_prompt = strategy_items[4]
+        if st.button(strategy_name, use_container_width=True, key="btn_4"):
+            st.session_state.messages.append({"role": "user", "content": strategy_prompt})
+            st.rerun()
+
+with row2_col3:
+    if len(strategy_items) > 5:
+        strategy_name, strategy_prompt = strategy_items[5]
+        if st.button(strategy_name, use_container_width=True, key="btn_5"):
+            st.session_state.messages.append({"role": "user", "content": strategy_prompt})
+            st.rerun()
+
+# Row 3
+with row3_col1:
+    if len(strategy_items) > 6:
+        strategy_name, strategy_prompt = strategy_items[6]
+        if st.button(strategy_name, use_container_width=True, key="btn_6"):
+            st.session_state.messages.append({"role": "user", "content": strategy_prompt})
+            st.rerun()
+
+with row3_col2:
+    if len(strategy_items) > 7:
+        strategy_name, strategy_prompt = strategy_items[7]
+        if st.button(strategy_name, use_container_width=True, key="btn_7"):
+            st.session_state.messages.append({"role": "user", "content": strategy_prompt})
+            st.rerun()
 
 # Main chat interface
 st.markdown("---")

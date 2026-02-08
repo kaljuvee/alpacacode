@@ -13,3 +13,5 @@ langchain-openai
 langgraph
 langchain-core
 pyyaml
+textual
+rich

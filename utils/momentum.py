@@ -83,7 +83,7 @@ def backtest_momentum_strategy(
     take_profit_pct: Optional[float] = 10.0,
     stop_loss_pct: Optional[float] = 5.0,
     interval: str = '1d',
-    data_source: str = 'yfinance',
+    data_source: str = 'polygon',
     include_taf_fees: bool = False,
     include_cat_fees: bool = False
 ) -> Dict:

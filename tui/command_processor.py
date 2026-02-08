@@ -231,6 +231,8 @@ Type 'help' for available commands.
                     params['lookback_period'] = int(value)
                 elif key == 'momentum_threshold':
                     params['momentum_threshold'] = float(value)
+                elif key == 'data_source':
+                    params['data_source'] = value.lower()
         
         return params
 
@@ -273,10 +275,19 @@ Type 'help' for available commands.
             take_profit=take_profit / 100,
             stop_loss=stop_loss / 100,
             interval=interval,
-            data_source='yfinance',
+            data_source=params.get('data_source', 'polygon').replace('polymarket', 'polygon'),
             include_taf_fees=True,
             include_cat_fees=True
         )
+        
+        if results is not None:
+            trades_df, _ = results
+            from pathlib import Path
+            output_dir = Path("backtest-results")
+            output_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"backtests_details_buy_the_dip_{timestamp}.csv"
+            trades_df.to_csv(output_dir / filename, index=False)
         
         if results is None:
             return "# No Results\n\nNo trades were generated during the backtest period. Try adjusting parameters or date range."
@@ -332,10 +343,19 @@ Type 'help' for available commands.
             take_profit_pct=take_profit,
             stop_loss_pct=stop_loss,
             interval=interval,
-            data_source='yfinance',
+            data_source=params.get('data_source', 'polygon').replace('polymarket', 'polygon'),
             include_taf_fees=True,
             include_cat_fees=True
         )
+        
+        if results is not None:
+            trades_df, _ = results
+            from pathlib import Path
+            output_dir = Path("backtest-results")
+            output_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"backtests_details_momentum_{timestamp}.csv"
+            trades_df.to_csv(output_dir / filename, index=False)
         
         if results is None:
             return "# No Results\n\nNo trades were generated during the backtest period. Try adjusting parameters or date range."

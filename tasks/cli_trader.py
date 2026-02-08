@@ -71,11 +71,11 @@ def load_config():
 
 # Import utilities
 from utils.alpaca_util import AlpacaAPI
-from utils.alpaca_util import is_market_open as alpaca_market_open
-from utils.backtester_util import backtest_buy_the_dip, backtest_vix_strategy
-from utils.yf_util import get_real_time_price, get_historical_data
+from utils.polygon_util import is_market_open as market_open, get_historical_data, get_intraday_prices
+from utils.backtester_util import backtest_buy_the_dip
 import time
 from datetime import datetime, timedelta, timezone
+import pytz
 
 
 def get_alpaca_client(mode='paper'):
@@ -185,22 +185,32 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
     
     for symbol in symbols:
         try:
-            # Get recent price data (last ~30 days) using EODHD
-            from_date = (datetime.now(timezone.utc) - timedelta(days=40)).strftime("%Y-%m-%d")
-            hist = get_historical_data(symbol, from_date=from_date)
+            # Match backtester logic: Get recent high over 20 periods
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=40)
+            
+            # Fetch historical data (daily bars for recent high)
+            hist = get_historical_data(symbol, start_date=start_date, end_date=end_date)
             
             if hist.empty:
                 logger.warning(f"No data for {symbol}, skipping")
                 continue
             
-            # Calculate dip
-            recent_high = float(hist['High'].tail(20).max())
-            # Prefer intraday price via EODHD for "current" price if enabled
+            # Calculate recent high over 20-period lookback
+            lookback_periods = 20
+            recent_high = float(hist['High'].tail(lookback_periods).max())
+            
+            # Get current price (most recent price available)
+            # If intraday is enabled, get today's 1-minute bars
             current_price = None
             if use_intraday:
-                current_price = get_real_time_price(symbol) or None
+                today_data = get_intraday_prices(symbol, date=end_date, interval='1')
+                if not today_data.empty:
+                    current_price = float(today_data['Close'].iloc[-1])
+            
             if current_price is None:
                 current_price = float(hist['Close'].iloc[-1])
+                
             dip_pct = ((recent_high - current_price) / recent_high) * 100
             
             logger.info(f"{symbol}: Recent high ${recent_high:.2f}, Current ${current_price:.2f}, Dip {dip_pct:.2f}%")
@@ -308,82 +318,6 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
     return trades_executed, order_ids
 
 
-def execute_vix_strategy(client, symbols, capital_per_trade=1000, vix_threshold=20.0):
-    """
-    Execute VIX-based strategy
-    
-    Args:
-        client: AlpacaAPI client
-        symbols: List of stock symbols
-        capital_per_trade: Capital to allocate per trade
-        vix_threshold: VIX level to trigger trades
-    """
-    logger.info(f"Executing VIX strategy for {len(symbols)} symbols")
-    
-    try:
-        # Get VIX data
-        vix = yf.Ticker('^VIX')
-        vix_hist = vix.history(period='1d')
-        
-        if vix_hist.empty:
-            logger.error("Could not fetch VIX data")
-            return 0
-        
-        current_vix = vix_hist['Close'].iloc[-1]
-        logger.info(f"Current VIX: {current_vix:.2f}")
-        
-        if current_vix < vix_threshold:
-            logger.info(f"VIX {current_vix:.2f} < {vix_threshold}, no trades executed")
-            return 0
-        
-        logger.info(f"VIX {current_vix:.2f} >= {vix_threshold}, executing trades")
-        
-        trades_executed = 0
-        
-        for symbol in symbols:
-            try:
-                # Get current price
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period='1d')
-                
-                if hist.empty:
-                    logger.warning(f"No data for {symbol}, skipping")
-                    continue
-                
-                current_price = hist['Close'].iloc[-1]
-                qty = int(capital_per_trade / current_price)
-                
-                if qty > 0:
-                    logger.info(f"BUY SIGNAL: {symbol} @ ${current_price:.2f} (VIX={current_vix:.2f})")
-                    
-                    # Place order
-                    result = client.create_order(
-                        symbol=symbol,
-                        qty=qty,
-                        side='buy',
-                        type='market',
-                        time_in_force='day'
-                    )
-                    
-                    if 'error' in result:
-                        logger.error(f"Order failed for {symbol}: {result['error']}")
-                    else:
-                        logger.info(f"✅ Order placed: BUY {qty} {symbol} @ market")
-                        trades_executed += 1
-                else:
-                    logger.warning(f"Quantity too small for {symbol} (${current_price:.2f})")
-                    
-            except Exception as e:
-                logger.error(f"Error processing {symbol}: {str(e)}")
-        
-        logger.info(f"Strategy execution complete. Trades executed: {trades_executed}")
-        return trades_executed
-        
-    except Exception as e:
-        logger.error(f"Error in VIX strategy: {str(e)}")
-        return 0
-
-
 def close_all_positions(client):
     """Close all open positions"""
     logger.info("Closing all positions")
@@ -401,6 +335,8 @@ def close_all_positions(client):
     except Exception as e:
         logger.error(f"Error closing positions: {str(e)}")
         return False
+
+
 
 
 def get_account_status(client):
@@ -503,7 +439,7 @@ def main():
     parser = argparse.ArgumentParser(description='Command-line trading script for automated strategy execution')
     
     parser.add_argument('--strategy', type=str, required=True,
-                       choices=['buy-the-dip', 'vix', 'close-all', 'status'],
+                       choices=['buy-the-dip', 'close-all', 'status'],
                        help='Strategy to execute')
     
     parser.add_argument('--mode', type=str, default='paper',
@@ -598,18 +534,6 @@ def main():
                     take_profit = getattr(args, 'take_profit_threshold', config.get('buy_the_dip', {}).get('take_profit_threshold', 1.0))
                     logger.info(f"DRY RUN: Would execute buy-the-dip strategy")
                     logger.info(f"Parameters: capital=${args.capital}, dip_threshold={args.dip_threshold}%, take_profit={take_profit}%")
-                    
-            elif args.strategy == 'vix':
-                if client:
-                    execute_vix_strategy(
-                        client,
-                        symbols,
-                        capital_per_trade=args.capital,
-                        vix_threshold=args.vix_threshold
-                    )
-                else:
-                    logger.info(f"DRY RUN: Would execute VIX strategy")
-                    logger.info(f"Parameters: capital=${args.capital}, vix_threshold={args.vix_threshold}")
             
             return order_ids
         
@@ -623,7 +547,8 @@ def main():
             
             while True:
                 try:
-                    if args.dry_run or alpaca_market_open():
+                    now = datetime.now()
+                    if args.dry_run or market_open(now):
                         new_order_ids = run_once()
                         if new_order_ids:
                             tracked_orders.extend(new_order_ids)

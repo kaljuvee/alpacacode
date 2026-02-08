@@ -18,10 +18,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from utils.db.db_pool import DatabasePool
 from sqlalchemy import text
-from utils.logging.log_util import get_logger
-
-# Initialize logger
-backtest_logger = get_logger("backtest_db_util")
+import logging
+backtest_logger = logging.getLogger("backtest_db_util")
 
 class BacktestDatabaseUtil:
     """Database utilities for backtest operations"""

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 import yfinance as yf
 import pytz
+from utils.polygon_util import is_market_open
 
 
 def get_intraday_data(ticker: str, interval: str = '1d', period: str = '30d') -> pd.DataFrame:
@@ -113,10 +114,11 @@ def calculate_cat_fee(shares: int) -> float:
 
 def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: datetime,
                         initial_capital: float = 10000, position_size: float = 0.1,
-                        dip_threshold: float = 0.02, hold_days: int = 1,
+                        dip_threshold: float = 0.02, hold_days: int = 2,
                         take_profit: float = 0.01, stop_loss: float = 0.005,
-                        interval: str = '1d', data_source: str = 'yfinance',
-                        include_taf_fees: bool = False, include_cat_fees: bool = False) -> Tuple[pd.DataFrame, Dict]:
+                        interval: str = '1d', data_source: str = 'polygon',
+                        include_taf_fees: bool = False, include_cat_fees: bool = False,
+                        pdt_protection: Optional[bool] = None) -> Tuple[pd.DataFrame, Dict]:
     """
     Backtest buy-the-dip strategy
     
@@ -135,6 +137,9 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
         stop_loss: Stop loss percentage (e.g., 0.005 = 0.5%)
         interval: Data interval ('1d', '60m', '30m', '15m', '5m')
         data_source: Data source ('yfinance' or 'polygon')
+        include_taf_fees: Include FINRA TAF fees
+        include_cat_fees: Include Consolidated Audit Trail fees
+        pdt_protection: If True, prevents same-day exits. Defaults to True if initial_capital < $25k.
     
     Returns:
         Tuple of (trades_df, metrics_dict)
@@ -143,17 +148,28 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
     # Import calculate_metrics from backtester_util
     from utils.backtester_util import calculate_metrics
     
-    # Determine period based on interval
-    if interval == '1d':
-        period = '30d'
-        lookback_periods = 20
+    # Set PDT status
+    if pdt_protection is None:
+        pdt_active = initial_capital < 25000
     else:
-        period = '30d'  # For intraday, use 30 days
-        lookback_periods = 20  # 20 periods lookback
+        pdt_active = pdt_protection
+    
+    # Determine lookback_periods based on interval
+    # We want approx 20 trading days of lookback
+    if interval == '1d':
+        lookback_periods = 20
+        period = '40d' # Fetch enough data for lookback
+    else:
+        # For intraday, we need many more bars to cover 20 trading days
+        # E.g., for 60m data, there are 16 bars per day (4am-8pm)
+        # 20 days * 16 bars = 320 periods
+        bars_per_day = 16 if interval == '60m' else 192 if interval == '5m' else 960 if interval == '1m' else 20
+        lookback_periods = 20 * bars_per_day
+        period = '60d'
     
     # Fetch data based on source
-    if data_source == 'yfinance' and interval != '1d':
-        # Use intraday data from yfinance
+    if data_source == 'polygon' or (data_source == 'yfinance' and interval != '1d'):
+        # Use intraday data
         price_data = {}
         for symbol in symbols:
             df = get_intraday_data(symbol, interval=interval, period=period)
@@ -161,161 +177,165 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                 price_data[symbol] = df
     else:
         # Use daily data
-        price_data = get_historical_data(symbols, start_date - timedelta(days=30), end_date)
+        price_data = get_historical_data(symbols, start_date - timedelta(days=40), end_date)
     
     if not price_data:
         return None
     
     trades = []
-    capital = initial_capital
+    available_capital = initial_capital
+    active_trades = {} # ticker: trade_info
     
-    # Make start_date and end_date timezone-aware for intraday data
-    if interval != '1d':
+    # Standardize timezones
+    is_aware = False
+    for symbol in symbols:
+        if symbol in price_data and not price_data[symbol].empty:
+            if price_data[symbol].index.tz is not None:
+                is_aware = True
+                break
+    
+    if is_aware:
         if start_date.tzinfo is None:
             start_date = start_date.replace(tzinfo=pytz.UTC)
         if end_date.tzinfo is None:
             end_date = end_date.replace(tzinfo=pytz.UTC)
+    else:
+        if start_date.tzinfo is not None:
+            start_date = start_date.replace(tzinfo=None)
+        if end_date.tzinfo is not None:
+            end_date = end_date.replace(tzinfo=None)
     
-    # Iterate through each trading day
-    current_date = start_date
-    while current_date <= end_date:
+    # Get all unique timestamps from the data within range
+    all_timestamps = set()
+    for df in price_data.values():
+        all_timestamps.update(df.index)
+    
+    sorted_timestamps = sorted([t for t in all_timestamps if start_date <= t <= end_date])
+    
+    for current_date in sorted_timestamps:
+        # Adjust time for daily data reporting
+        display_time = current_date
+        if interval == '1d':
+            eastern = pytz.timezone('US/Eastern')
+            if display_time.tzinfo is None:
+                display_time = pytz.utc.localize(display_time).astimezone(eastern)
+            else:
+                display_time = display_time.astimezone(eastern)
+            display_time = display_time.replace(hour=9, minute=30)
         
-        for symbol in symbols:
-            if symbol not in price_data:
-                continue
-            
+        # 1. PROCESS EXITS FIRST (Chronological order)
+        closed_this_tick = []
+        for symbol, trade in active_trades.items():
             df = price_data[symbol]
+            current_bar = df.loc[current_date]
             
-            # Get data up to current date
-            historical = df[df.index <= current_date]
-            if len(historical) < lookback_periods:  # Need minimum history
-                continue
+            # Use same reporting shift for exit time
+            exit_display_time = current_date
+            if interval == '1d':
+                eastern = pytz.timezone('US/Eastern')
+                if exit_display_time.tzinfo is None:
+                    exit_display_time = pytz.utc.localize(exit_display_time).astimezone(eastern)
+                else:
+                    exit_display_time = exit_display_time.astimezone(eastern)
+                exit_display_time = exit_display_time.replace(hour=16, minute=0)
+
+            # PDT Check: Cannot exit on same calendar day as entry if PDT active
+            # Note: current_date and trade['entry_date_raw'] are in UTC/data timezone
+            is_same_day = current_date.date() == trade['entry_date_raw']
+            can_day_trade = not (pdt_active and is_same_day)
+
+            hit_tp = can_day_trade and float(current_bar['High']) >= trade['target_price']
+            hit_sl = can_day_trade and float(current_bar['Low']) <= trade['stop_price']
+            hit_end = current_date >= trade['max_exit_time']
             
-            # Calculate recent high over lookback period
-            recent_high = float(historical['High'].tail(lookback_periods).max())
-            current_price = float(historical['Close'].iloc[-1])
-            
-            # Check if we have a dip
-            dip_pct = (recent_high - current_price) / recent_high
-            
-            if dip_pct >= dip_threshold:
-                # Enter trade
-                entry_price = current_price
-                entry_time = current_date
-                shares = int((capital * position_size) / entry_price)
+            if hit_tp or hit_sl or hit_end:
+                exit_price = trade['target_price'] if hit_tp else trade['stop_price'] if hit_sl else float(current_bar['Close'])
                 
-                if shares == 0:
-                    continue
+                # Calculate P&L and fees
+                pnl = (exit_price - trade['entry_price']) * trade['shares']
                 
-                # Calculate target and stop prices
-                target_price = entry_price * (1 + take_profit)
-                stop_price = entry_price * (1 - stop_loss)
+                taf_fee = calculate_finra_taf_fee(trade['shares']) if include_taf_fees else 0.0
+                cat_fee_buy = calculate_cat_fee(trade['shares']) if include_cat_fees else 0.0
+                cat_fee_sell = calculate_cat_fee(trade['shares']) if include_cat_fees else 0.0
+                total_fees = taf_fee + cat_fee_buy + cat_fee_sell
                 
-                # Simulate holding period
-                exit_time = entry_time + timedelta(days=hold_days)
-                if exit_time > end_date:
-                    exit_time = end_date
-                
-                # Get exit data
-                future_data = df[(df.index > entry_time) & (df.index <= exit_time)]
-                
-                if future_data.empty:
-                    continue
-                
-                # Check for take profit or stop loss
-                hit_target = False
-                hit_stop = False
-                exit_price = None
-                actual_exit_time = None
-                
-                for idx, row in future_data.iterrows():
-                    if float(row['High']) >= target_price:
-                        exit_price = target_price
-                        actual_exit_time = idx
-                        hit_target = True
-                        break
-                    elif float(row['Low']) <= stop_price:
-                        exit_price = stop_price
-                        actual_exit_time = idx
-                        hit_stop = True
-                        break
-                
-                # If neither hit, exit at end of hold period
-                if exit_price is None:
-                    exit_price = float(future_data['Close'].iloc[-1])
-                    actual_exit_time = future_data.index[-1]
-                
-                # Calculate P&L
-                pnl = (exit_price - entry_price) * shares
-                
-                # Calculate fees
-                taf_fee = 0.0
-                cat_fee_buy = 0.0
-                cat_fee_sell = 0.0
-                total_fees = 0.0
-                
-                # CAT fee on buy (entry)
-                if include_cat_fees:
-                    cat_fee_buy = calculate_cat_fee(shares)
-                    total_fees += cat_fee_buy
-                
-                # TAF fee on sell (exit only)
-                if include_taf_fees:
-                    taf_fee = calculate_finra_taf_fee(shares)
-                    total_fees += taf_fee
-                
-                # CAT fee on sell (exit)
-                if include_cat_fees:
-                    cat_fee_sell = calculate_cat_fee(shares)
-                    total_fees += cat_fee_sell
-                
-                # Subtract all fees from P&L
                 pnl -= total_fees
+                available_capital += (trade['entry_price'] * trade['shares']) + pnl
+                pnl_pct = ((exit_price - trade['entry_price']) / trade['entry_price']) * 100
                 
-                pnl_pct = ((exit_price - entry_price) / entry_price) * 100
-                capital += pnl
-                
-                # Record trade
                 trades.append({
-                    'entry_time': entry_time,
-                    'exit_time': actual_exit_time,
+                    'entry_time': trade['entry_time'],
+                    'exit_time': exit_display_time,
                     'ticker': symbol,
                     'direction': 'long',
-                    'shares': shares,
-                    'entry_price': entry_price,
+                    'shares': trade['shares'],
+                    'entry_price': trade['entry_price'],
                     'exit_price': exit_price,
-                    'target_price': target_price,
-                    'stop_price': stop_price,
-                    'hit_target': hit_target,
-                    'hit_stop': hit_stop,
+                    'target_price': trade['target_price'],
+                    'stop_price': trade['stop_price'],
+                    'hit_target': hit_tp,
+                    'hit_stop': hit_sl and not hit_tp,
+                    'TP': 1 if hit_tp else 0,
+                    'SL': 1 if hit_sl and not hit_tp else 0,
                     'pnl': pnl,
                     'pnl_pct': pnl_pct,
-                    'capital_after': capital,
-                    'dip_pct': dip_pct * 100,
+                    'capital_after': available_capital,
+                    'dip_pct': trade['dip_pct'] * 100,
                     'taf_fee': taf_fee,
                     'cat_fee': cat_fee_buy + cat_fee_sell,
                     'total_fees': total_fees
                 })
+                closed_this_tick.append(symbol)
         
-        # Increment based on interval
-        if interval == '1d':
-            current_date += timedelta(days=1)
-        elif interval == '60m':
-            current_date += timedelta(hours=1)
-        elif interval == '30m':
-            current_date += timedelta(minutes=30)
-        elif interval == '15m':
-            current_date += timedelta(minutes=15)
-        elif interval == '5m':
-            current_date += timedelta(minutes=5)
+        for symbol in closed_this_tick:
+            del active_trades[symbol]
+
+        # 2. PROCESS ENTRIES
+        if not is_market_open(display_time):
+            continue
+
+        for symbol in symbols:
+            if symbol not in price_data or symbol in active_trades:
+                continue
+            
+            df = price_data[symbol]
+            historical = df[df.index <= current_date]
+            if len(historical) < lookback_periods:
+                continue
+            
+            recent_high = float(historical['High'].tail(lookback_periods).max())
+            current_price = float(historical['Close'].iloc[-1])
+            dip_pct = (recent_high - current_price) / recent_high
+            
+            if dip_pct >= dip_threshold:
+                # Enter trade
+                shares = int((available_capital * position_size) / current_price)
+                if shares <= 0:
+                    continue
+                
+                # Check for enough capital
+                cost = current_price * shares
+                if cost > available_capital:
+                    shares = int(available_capital / current_price)
+                    cost = current_price * shares
+                    if shares <= 0: continue
+                
+                available_capital -= cost
+                
+                active_trades[symbol] = {
+                    'entry_time': display_time,
+                    'entry_date_raw': current_date.date(),
+                    'entry_price': current_price,
+                    'shares': shares,
+                    'target_price': current_price * (1 + take_profit),
+                    'stop_price': current_price * (1 - stop_loss),
+                    'max_exit_time': current_date + timedelta(days=hold_days),
+                    'dip_pct': dip_pct
+                }
     
     if not trades:
         return None
     
-    # Create trades dataframe
-    trades_df = pd.DataFrame(trades)
-    
-    # Calculate metrics
+    trades_df = pd.DataFrame(trades).sort_values('exit_time')
     metrics = calculate_metrics(trades_df, initial_capital, start_date, end_date)
-    
     return trades_df, metrics

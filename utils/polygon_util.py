@@ -11,10 +11,10 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import yfinance as yf
+import pytz
 from typing import Optional, Dict, Any
-from utils.logging.log_util import get_logger
-
-logger = get_logger(__name__)
+import logging
+logger = logging.getLogger(__name__)
 
 class PolygonUtil:
     """Utility class for accessing Polygon.io API with yfinance fallback"""
@@ -120,6 +120,76 @@ class PolygonUtil:
         except Exception as e:
             logger.error(f"Error getting yfinance data for {symbol}: {e}")
             return pd.DataFrame()
+            
+    def get_historical_data(self, symbol: str, start_date: datetime, end_date: datetime, timeframe: str = 'day', interval: int = 1) -> pd.DataFrame:
+        """
+        Get historical price data for a range of dates
+        
+        Args:
+            symbol: Stock symbol
+            start_date: Start date
+            end_date: End date
+            timeframe: 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'
+            interval: Number of timeframes per bar
+            
+        Returns:
+            DataFrame with OHLCV data
+        """
+        if self.use_polygon:
+            return self._get_polygon_historical(symbol, start_date, end_date, timeframe, interval)
+        else:
+            return self._get_yfinance_historical(symbol, start_date, end_date, timeframe, interval)
+
+    def _get_polygon_historical(self, symbol: str, start_date: datetime, end_date: datetime, timeframe: str, interval: int) -> pd.DataFrame:
+        """Get historical data from Polygon.io API across a range"""
+        try:
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+            
+            url = f"{self.base_url}/v2/aggs/ticker/{symbol}/range/{interval}/{timeframe}/{start_str}/{end_str}"
+            params = {
+                'apiKey': self.api_key,
+                'adjusted': 'true',
+                'sort': 'asc'
+            }
+            
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if data['status'] != 'OK' or data.get('resultsCount', 0) == 0:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(data['results'])
+            df = df.rename(columns={'o': 'Open', 'h': 'High', 'l': 'Low', 'c': 'Close', 'v': 'Volume', 't': 'timestamp'})
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df.set_index('timestamp', inplace=True)
+            return df[['Open', 'High', 'Low', 'Close', 'Volume']]
+            
+        except Exception as e:
+            logger.error(f"Error getting Polygon historical for {symbol}: {e}")
+            return pd.DataFrame()
+
+    def _get_yfinance_historical(self, symbol: str, start_date: datetime, end_date: datetime, timeframe: str, interval: int) -> pd.DataFrame:
+        """Get historical data from yfinance fallback"""
+        try:
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+            
+            yf_interval = '1d'
+            if timeframe == 'minute':
+                yf_interval = f'{interval}m'
+            elif timeframe == 'hour':
+                yf_interval = f'{interval}h'
+            elif timeframe == 'day':
+                yf_interval = f'{interval}d'
+            
+            data = yf.download(symbol, start=start_str, end=end_str, interval=yf_interval, progress=False)
+            return data
+        except Exception as e:
+            logger.error(f"Error getting yfinance historical for {symbol}: {e}")
+            return pd.DataFrame()
     
     def get_ticker_info(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
@@ -202,19 +272,16 @@ class PolygonUtil:
     def _check_polygon_market_status(self, date: datetime) -> bool:
         """Check market status using Polygon API"""
         try:
-            date_str = date.strftime('%Y-%m-%d')
-            url = f"{self.base_url}/v1/marketstatus/now"
-            params = {'apiKey': self.api_key}
+            # Convert to US/Eastern
+            eastern = pytz.timezone('US/Eastern')
+            if date.tzinfo is not None:
+                date_et = date.astimezone(eastern)
+            else:
+                date_et = pytz.utc.localize(date).astimezone(eastern)
             
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if data['status'] == 'OK':
-                # This is simplified - Polygon doesn't provide historical market status
-                # We'll assume US market hours
-                return date.weekday() < 5  # Monday = 0, Friday = 4
+            hour = date_et.hour
+            if date_et.weekday() < 5:  # Weekday
+                return 4 <= hour < 20
             
             return False
             
@@ -225,8 +292,15 @@ class PolygonUtil:
     def _check_yfinance_market_status(self, date: datetime) -> bool:
         """Check market status using yfinance"""
         try:
-            # Simple check - assume US market is open on weekdays
-            return date.weekday() < 5  # Monday = 0, Friday = 4
+            # Convert to US/Eastern
+            eastern = pytz.timezone('US/Eastern')
+            if date.tzinfo is not None:
+                date_et = date.astimezone(eastern)
+            else:
+                date_et = pytz.utc.localize(date).astimezone(eastern)
+                
+            hour = date_et.hour
+            return date_et.weekday() < 5 and 4 <= hour < 20
             
         except Exception as e:
             logger.error(f"Error checking yfinance market status: {e}")
@@ -247,3 +321,7 @@ def get_ticker_info(symbol: str) -> Optional[Dict[str, Any]]:
 def is_market_open(date: datetime) -> bool:
     """Check if market is open with automatic fallback"""
     return polygon_util.is_market_open(date)
+
+def get_historical_data(symbol: str, start_date: datetime, end_date: datetime, timeframe: str = 'day', interval: int = 1) -> pd.DataFrame:
+    """Get historical price data with automatic fallback"""
+    return polygon_util.get_historical_data(symbol, start_date, end_date, timeframe, interval)

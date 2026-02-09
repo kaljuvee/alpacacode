@@ -124,7 +124,7 @@ class AlpacaAPI:
                             **order_dict,
                             "_stored_at": datetime.utcnow().isoformat() + "Z",
                             "_paper": self.paper
-                        }) + "\n")
+                        }, default=str) + "\n")
                     stored = True
                     logger.info(f"Order {order_dict.get('id')} stored locally at {outfile}")
                 except Exception as file_err:

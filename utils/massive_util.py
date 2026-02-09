@@ -75,7 +75,7 @@ class MassiveUtil:
             
             data = response.json()
             
-            if data['status'] != 'OK' or data.get('resultsCount', 0) == 0:
+            if data.get('resultsCount', 0) == 0:
                 status = data.get('status', 'Unknown')
                 count = data.get('resultsCount', 0)
                 logger.debug(f"Massive: {symbol} on {date_str} -> status={status}, count={count}")
@@ -171,7 +171,7 @@ class MassiveUtil:
             
             data = response.json()
             
-            if data['status'] != 'OK' or data.get('resultsCount', 0) == 0:
+            if data.get('resultsCount', 0) == 0:
                 return pd.DataFrame()
             
             df = pd.DataFrame(data['results'])

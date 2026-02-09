@@ -154,7 +154,7 @@ def log_trade_to_csv(trade_data: dict, csv_path: str = 'reports/sample-back-test
 
 def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_threshold=1.0, 
                                  take_profit_threshold=1.0, stop_loss_threshold=0.5, 
-                                 hold_days=2, use_intraday=True):
+                                 hold_days=2, use_intraday=True, dry_run=False):
     """
     Execute buy-the-dip strategy with entry and exit logic
     
@@ -170,12 +170,17 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
     logger.info(f"Executing buy-the-dip strategy for {len(symbols)} symbols")
     logger.info(f"Parameters: dip={dip_threshold}%, tp={take_profit_threshold}%, sl={stop_loss_threshold}%, hold={hold_days}d")
     
+    trades_executed = 0
+    
     # 1. PROCESS EXITS (Check existing positions)
+    existing_symbols = set()
     if client:
         try:
             positions = client.get_positions()
             for pos in positions:
                 symbol = pos.get('symbol')
+                existing_symbols.add(symbol)
+                logger.info(f"  📝 Detected existing position for {symbol}")
                 if symbol not in symbols: continue
                 
                 qty = float(pos.get('qty', 0))
@@ -221,11 +226,16 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
                     
                     if exit_reason:
                         logger.info(f"  🚀 EXIT SIGNAL: {symbol} - {exit_reason}")
-                        res = client.create_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='day')
-                        if 'error' in res:
-                            logger.error(f"  ❌ Exit failed for {symbol}: {res['error']}")
+                        if dry_run:
+                            logger.info(f"  DRY RUN: Would place EXIT order for {symbol}")
+                            trades_executed += 1
                         else:
-                            logger.info(f"  ✅ Exit order placed for {symbol}")
+                            res = client.create_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='day')
+                            if 'error' in res:
+                                logger.error(f"  ❌ Exit failed for {symbol}: {res['error']}")
+                            else:
+                                logger.info(f"  ✅ Exit order placed for {symbol}")
+                                trades_executed += 1
         except Exception as e:
             logger.error(f"Error processing exits: {e}")
 
@@ -236,6 +246,11 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
             logger.error(f"Cannot get account info: {account['error']}")
             return 0, []
         
+    if dry_run:
+        buying_power = 100000.0 # Virtual for dry-run
+        max_position_value = 5000.0
+        logger.info(f"DRY RUN: Using virtual buying power ${buying_power:,.2f}")
+    else:
         buying_power = float(account.get('buying_power', 0))
         if buying_power <= 0:
             logger.warning(f"Insufficient buying power: ${buying_power:.2f}")
@@ -245,17 +260,17 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
         
         # Calculate max position size (5% of buying power)
         max_position_value = buying_power * 0.05
-    else:
-        buying_power = 100000.0 # Virtual for dry-run
-        max_position_value = 5000.0
-        logger.info(f"DRY RUN: Using virtual buying power ${buying_power:,.2f}")
     
     logger.info(f"Max position size (5% of buying power): ${max_position_value:,.2f}")
     
-    trades_executed = 0
     order_ids = []  # Track order IDs for status checking
     
     for symbol in symbols:
+        # Skip if position already exists
+        if symbol in existing_symbols:
+            logger.info(f"  ⏭️  Skipping {symbol}: Position already exists")
+            continue
+            
         # Rate limit protection (avoid hitting Massive/Alpaca limits)
         time.sleep(0.5)
         try:
@@ -273,7 +288,8 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
             # Calculate recent high over 20-period lookback
             lookback_periods = 20
             high_series = hist['High'].tail(lookback_periods)
-            recent_high = float(high_series.max())
+            max_val = high_series.max()
+            recent_high = float(max_val.iloc[0]) if hasattr(max_val, 'iloc') else float(max_val)
             
             # Get current price (most recent price available)
             # If intraday is enabled, get today's 1-minute bars
@@ -286,8 +302,7 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
             
             if current_price is None:
                 val = hist['Close'].iloc[-1]
-                current_price = float(val.item()) if hasattr(val, 'item') else float(val)
-                
+                current_price = float(val.iloc[0]) if hasattr(val, 'iloc') else float(val)
             dip_pct = ((recent_high - current_price) / recent_high) * 100
             
             logger.info(f"{symbol}: Recent high ${recent_high:.2f}, Current ${current_price:.2f}, Dip {dip_pct:.2f}%")
@@ -334,7 +349,7 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
                     logger.info(f"  Order: {qty} shares @ ${current_price:.2f} = ${order_value:.2f} ({position_pct:.2f}% of buying power)")
                     
                     # Place order
-                    if client:
+                    if not dry_run and client:
                         result = client.create_order(
                             symbol=symbol,
                             qty=qty,
@@ -592,20 +607,26 @@ def main():
         time.sleep(5)
     
     try:
-        # Initialize client
-        if not args.dry_run:
+        # Initialize client (required for position/account info even in dry-run)
+        try:
             client = get_alpaca_client(args.mode)
-            
-            # Validate keys by attempting to fetch account info
             account = client.get_account()
             if 'error' in account:
-                logger.error(f"❌ API Key Validation Failed: {account['error']}")
+                if not args.dry_run:
+                    logger.error(f"❌ API Key Validation Failed: {account['error']}")
+                    sys.exit(1)
+                else:
+                    logger.warning(f"⚠️  Dry run: Could not validate keys, position check will be skipped: {account['error']}")
+                    client = None
+            else:
+                logger.info(f"✅ Connected to Alpaca ({args.mode.upper()} mode) - Keys Validated")
+        except Exception as e:
+            if not args.dry_run:
+                logger.error(f"❌ Failed to initialize Alpaca client: {e}")
                 sys.exit(1)
-                
-            logger.info(f"✅ Connected to Alpaca ({args.mode.upper()} mode) - Keys Validated")
-        else:
-            logger.info("DRY RUN MODE - No actual trades will be executed")
-            client = None
+            else:
+                logger.warning(f"⚠️  Dry run: Client init failed, position check will be skipped: {e}")
+                client = None
         
         # Execute strategy (single-run or loop)
         def run_once():
@@ -625,14 +646,15 @@ def main():
                     
             elif args.strategy == 'buy-the-dip':
                 trades_executed, order_ids = execute_buy_the_dip_strategy(
-                    client, # Can be None for dry-run
+                    client,
                     symbols,
                     capital_per_trade=args.capital,
                     dip_threshold=args.dip_threshold,
                     take_profit_threshold=args.take_profit_threshold,
                     stop_loss_threshold=args.stop_loss_threshold,
                     hold_days=args.hold_days,
-                    use_intraday=True
+                    use_intraday=True,
+                    dry_run=args.dry_run
                 )
             
             return order_ids

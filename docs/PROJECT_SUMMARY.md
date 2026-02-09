@@ -48,7 +48,7 @@ Successfully built and deployed a Python Streamlit MVP application for backtesti
 - ✅ backtester_util.py - backtesting engine with buy-the-dip and VIX strategies
 - ✅ alpaca_util.py - Alpaca API wrapper for trading
 - ✅ backtest_db_util.py - database utilities for storing results
-- ✅ polygon_util.py - Polygon.io API integration for market data
+- ✅ massive_util.py - Massive API integration (Polygon.io based) for market data
 - ✅ yf_util.py - Yahoo Finance utilities
 
 ### 7. Configuration & Documentation
@@ -60,7 +60,7 @@ Successfully built and deployed a Python Streamlit MVP application for backtesti
 
 ## API Credentials Configured
 - ✅ Alpaca Paper Trading API (keys provided)
-- ✅ Polygon.io API (key: 3lKo1IgQ3hXMjMCkmbQACTJySZHkfld7)
+- ✅ Massive API (key: 3lKo1IgQ3hXMjMCkmbQACTJySZHkfld7)
 - ✅ XAI API (for AI Assistant features)
 
 ## Installation & Usage
@@ -84,7 +84,7 @@ streamlit run Home.py
 ## Key Technologies
 - **Frontend**: Streamlit
 - **Data Visualization**: Plotly
-- **Market Data**: Yahoo Finance, Polygon.io
+- **Market Data**: Yahoo Finance, Massive
 - **Trading API**: Alpaca Markets
 - **AI**: XAI Grok
 - **Database**: PostgreSQL (optional, SQLAlchemy)
@@ -102,7 +102,7 @@ strategy-simulator/
 │   ├── alpaca_util.py         # Alpaca API wrapper
 │   ├── backtester_util.py     # Backtesting engine
 │   ├── backtest_db_util.py    # Database utilities
-│   ├── polygon_util.py        # Polygon API wrapper
+│   ├── massive_util.py        # Massive API wrapper
 │   └── yf_util.py             # Yahoo Finance utilities
 ├── sql/
 │   ├── 01_create_backtest_summary.sql

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Polygon API Utility
+Massive API Utility
 
-Provides access to Polygon.io API for intraday price data with fallback to yfinance.
-Requires POLYGON_API_KEY environment variable to be set.
+Provides access to Massive (Polygon.io) API for intraday price data with fallback to yfinance.
+Requires MASSIVE_API_KEY environment variable to be set.
 """
 
 import os
@@ -12,23 +12,28 @@ import pandas as pd
 from datetime import datetime, timedelta
 import yfinance as yf
 import pytz
-from typing import Optional, Dict, Any
+from dotenv import load_dotenv
+from typing import Optional, Dict, Any, List
 import logging
+
+# Load environment variables
+load_dotenv()
+
 logger = logging.getLogger(__name__)
 
-class PolygonUtil:
-    """Utility class for accessing Polygon.io API with yfinance fallback"""
+class MassiveUtil:
+    """Utility class for accessing Massive (Polygon.io) API with yfinance fallback"""
     
     def __init__(self):
-        """Initialize Polygon utility"""
-        self.api_key = os.getenv('POLYGON_API_KEY')
+        """Initialize Massive utility"""
+        self.api_key = os.getenv('MASSIVE_API_KEY')
         self.base_url = "https://api.polygon.io"
-        self.use_polygon = bool(self.api_key)
+        self.use_massive = bool(self.api_key)
         
-        if self.use_polygon:
-            logger.info("Polygon API key found, will use Polygon.io for price data")
+        if self.use_massive:
+            logger.info("Massive API key found, will use Massive for price data")
         else:
-            logger.info("No Polygon API key found, will use yfinance for price data")
+            logger.info("No Massive API key found, will use yfinance for price data")
     
     def get_intraday_prices(self, symbol: str, date: datetime, interval: str = '5') -> pd.DataFrame:
         """
@@ -42,18 +47,21 @@ class PolygonUtil:
         Returns:
             DataFrame with OHLCV data
         """
-        if self.use_polygon:
-            return self._get_polygon_intraday(symbol, date, interval)
-        else:
-            return self._get_yfinance_intraday(symbol, date, interval)
+        if self.use_massive:
+            df = self._get_massive_intraday(symbol, date, interval)
+            if not df.empty:
+                return df
+            logger.info(f"Massive returned no data for {symbol}, falling back to yfinance")
+            
+        return self._get_yfinance_intraday(symbol, date, interval)
     
-    def _get_polygon_intraday(self, symbol: str, date: datetime, interval: str) -> pd.DataFrame:
-        """Get intraday data from Polygon.io API"""
+    def _get_massive_intraday(self, symbol: str, date: datetime, interval: str) -> pd.DataFrame:
+        """Get intraday data from Massive (Polygon.io) API"""
         try:
             # Format date for Polygon API
             date_str = date.strftime('%Y-%m-%d')
             
-            # Polygon API endpoint for intraday data
+            # Massive API endpoint for intraday data
             url = f"{self.base_url}/v2/aggs/ticker/{symbol}/range/{interval}/minute/{date_str}/{date_str}"
             
             params = {
@@ -67,8 +75,10 @@ class PolygonUtil:
             
             data = response.json()
             
-            if data['status'] != 'OK' or data['resultsCount'] == 0:
-                logger.warning(f"No Polygon data available for {symbol} on {date_str}")
+            if data['status'] != 'OK' or data.get('resultsCount', 0) == 0:
+                status = data.get('status', 'Unknown')
+                count = data.get('resultsCount', 0)
+                logger.debug(f"Massive: {symbol} on {date_str} -> status={status}, count={count}")
                 return pd.DataFrame()
             
             # Convert to DataFrame
@@ -91,14 +101,14 @@ class PolygonUtil:
             # Select only OHLCV columns
             df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
             
-            logger.info(f"Retrieved {len(df)} bars from Polygon for {symbol} on {date_str}")
+            logger.info(f"Retrieved {len(df)} bars from Massive for {symbol} on {date_str}")
             return df
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"Polygon API request failed for {symbol}: {e}")
+            logger.error(f"Massive API request failed for {symbol}: {e}")
             return pd.DataFrame()
         except Exception as e:
-            logger.error(f"Error getting Polygon data for {symbol}: {e}")
+            logger.error(f"Error getting Massive data for {symbol}: {e}")
             return pd.DataFrame()
     
     def _get_yfinance_intraday(self, symbol: str, date: datetime, interval: str) -> pd.DataFrame:
@@ -135,13 +145,16 @@ class PolygonUtil:
         Returns:
             DataFrame with OHLCV data
         """
-        if self.use_polygon:
-            return self._get_polygon_historical(symbol, start_date, end_date, timeframe, interval)
-        else:
-            return self._get_yfinance_historical(symbol, start_date, end_date, timeframe, interval)
+        if self.use_massive:
+            df = self._get_massive_historical(symbol, start_date, end_date, timeframe, interval)
+            if not df.empty:
+                return df
+            logger.info(f"Massive returned no historical data for {symbol}, falling back to yfinance")
+            
+        return self._get_yfinance_historical(symbol, start_date, end_date, timeframe, interval)
 
-    def _get_polygon_historical(self, symbol: str, start_date: datetime, end_date: datetime, timeframe: str, interval: int) -> pd.DataFrame:
-        """Get historical data from Polygon.io API across a range"""
+    def _get_massive_historical(self, symbol: str, start_date: datetime, end_date: datetime, timeframe: str, interval: int) -> pd.DataFrame:
+        """Get historical data from Massive API across a range"""
         try:
             start_str = start_date.strftime('%Y-%m-%d')
             end_str = end_date.strftime('%Y-%m-%d')
@@ -168,7 +181,7 @@ class PolygonUtil:
             return df[['Open', 'High', 'Low', 'Close', 'Volume']]
             
         except Exception as e:
-            logger.error(f"Error getting Polygon historical for {symbol}: {e}")
+            logger.error(f"Error getting Massive historical for {symbol}: {e}")
             return pd.DataFrame()
 
     def _get_yfinance_historical(self, symbol: str, start_date: datetime, end_date: datetime, timeframe: str, interval: int) -> pd.DataFrame:
@@ -201,13 +214,13 @@ class PolygonUtil:
         Returns:
             Dictionary with ticker info or None if not found
         """
-        if self.use_polygon:
-            return self._get_polygon_ticker_info(symbol)
+        if self.use_massive:
+            return self._get_massive_ticker_info(symbol)
         else:
             return self._get_yfinance_ticker_info(symbol)
     
-    def _get_polygon_ticker_info(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get ticker info from Polygon API"""
+    def _get_massive_ticker_info(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get ticker info from Massive (Polygon) API"""
         try:
             url = f"{self.base_url}/v3/reference/tickers/{symbol}"
             params = {'apiKey': self.api_key}
@@ -231,7 +244,7 @@ class PolygonUtil:
             return None
             
         except Exception as e:
-            logger.error(f"Error getting Polygon ticker info for {symbol}: {e}")
+            logger.error(f"Error getting Massive ticker info for {symbol}: {e}")
             return None
     
     def _get_yfinance_ticker_info(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -264,13 +277,13 @@ class PolygonUtil:
         Returns:
             True if market is open, False otherwise
         """
-        if self.use_polygon:
-            return self._check_polygon_market_status(date)
+        if self.use_massive:
+            return self._check_massive_market_status(date)
         else:
             return self._check_yfinance_market_status(date)
     
-    def _check_polygon_market_status(self, date: datetime) -> bool:
-        """Check market status using Polygon API"""
+    def _check_massive_market_status(self, date: datetime) -> bool:
+        """Check market status using Massive API"""
         try:
             # Convert to US/Eastern
             eastern = pytz.timezone('US/Eastern')
@@ -286,7 +299,7 @@ class PolygonUtil:
             return False
             
         except Exception as e:
-            logger.error(f"Error checking Polygon market status: {e}")
+            logger.error(f"Error checking Massive market status: {e}")
             return False
     
     def _check_yfinance_market_status(self, date: datetime) -> bool:
@@ -307,21 +320,21 @@ class PolygonUtil:
             return False
 
 # Global instance
-polygon_util = PolygonUtil()
+massive_util = MassiveUtil()
 
 # Convenience functions
 def get_intraday_prices(symbol: str, date: datetime, interval: str = '5') -> pd.DataFrame:
     """Get intraday price data with automatic fallback"""
-    return polygon_util.get_intraday_prices(symbol, date, interval)
+    return massive_util.get_intraday_prices(symbol, date, interval)
 
 def get_ticker_info(symbol: str) -> Optional[Dict[str, Any]]:
     """Get ticker information with automatic fallback"""
-    return polygon_util.get_ticker_info(symbol)
+    return massive_util.get_ticker_info(symbol)
 
 def is_market_open(date: datetime) -> bool:
     """Check if market is open with automatic fallback"""
-    return polygon_util.is_market_open(date)
+    return massive_util.is_market_open(date)
 
 def get_historical_data(symbol: str, start_date: datetime, end_date: datetime, timeframe: str = 'day', interval: int = 1) -> pd.DataFrame:
     """Get historical price data with automatic fallback"""
-    return polygon_util.get_historical_data(symbol, start_date, end_date, timeframe, interval)
+    return massive_util.get_historical_data(symbol, start_date, end_date, timeframe, interval)

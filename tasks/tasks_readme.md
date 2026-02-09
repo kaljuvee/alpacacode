@@ -145,10 +145,12 @@ PYTHONPATH=/home/julian/dev/hobby/strategy-simulator python tasks/cli_trader.py 
 | `--symbols` | Comma-separated stock symbols | `AAPL,MSFT,GOOGL,AMZN,META,TSLA,NVDA` |
 | `--capital` | Capital per trade in dollars | `1000` |
 | `--dip-threshold` | Dip percentage to trigger buy (e.g., 5.0 = 5%) | `5.0` |
-| `--vix-threshold` | VIX level to trigger trades | `20.0` |
+| `--take-profit-threshold` | Percentage gain to take profit | `1.0` |
+| `--stop-loss-threshold` | Percentage loss to stop out | `0.5` |
+| `--hold-days` | Minimum days to hold position (Mandatory for PDT if <$25k) | `2` |
 | `--dry-run` | Test mode - no actual trades placed | `false` |
-| `--loop` | Run continuously instead of once | `false` |
-| `--interval` | Seconds between checks in loop mode | `300` |
+| `--once` | Run once and exit | `false` |
+| `--interval` | Seconds between checks in continuous mode | `300` |
 
 ## Output Files
 

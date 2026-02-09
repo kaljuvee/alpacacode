@@ -10,6 +10,9 @@ from typing import Dict, List, Tuple, Optional
 import yfinance as yf
 
 
+from utils.massive_util import MassiveUtil
+massive_util = MassiveUtil()
+
 def get_intraday_data(ticker: str, interval: str = '1d', period: str = '30d') -> pd.DataFrame:
     """
     Fetch intraday or daily data from yfinance
@@ -83,7 +86,7 @@ def backtest_momentum_strategy(
     take_profit_pct: Optional[float] = 10.0,
     stop_loss_pct: Optional[float] = 5.0,
     interval: str = '1d',
-    data_source: str = 'polygon',
+    data_source: str = 'massive',
     include_taf_fees: bool = False,
     include_cat_fees: bool = False
 ) -> Dict:
@@ -119,12 +122,18 @@ def backtest_momentum_strategy(
     
     for symbol in symbols:
         try:
-            # Download historical data based on interval
-            if data_source == 'yfinance' and interval != '1d':
+            # Download historical data based on source
+            if data_source == 'massive':
+                # Use Massive (with yf fallback)
+                # Estimate start date for intraday if needed
+                data_start = start_date - timedelta(days=60)
+                historical = massive_util.get_historical_data(symbol, data_start, end_date, timeframe='minute' if interval != '1d' else 'day', interval=1)
+                
+            elif data_source == 'yfinance' and interval != '1d':
                 historical = get_intraday_data(symbol, interval=interval, period='30d')
             else:
-                ticker = yf.Ticker(symbol)
-                historical = ticker.history(start=start_date, end=end_date)
+                ticker_obj = yf.Ticker(symbol)
+                historical = ticker_obj.history(start=start_date, end=end_date)
             
             if historical is None or (isinstance(historical, pd.DataFrame) and historical.empty):
                 continue

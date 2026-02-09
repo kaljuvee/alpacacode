@@ -12,6 +12,7 @@ import yaml
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 import logging
+import pandas as pd
 from pathlib import Path
 
 # Add project root to Python path
@@ -53,8 +54,10 @@ def load_config():
     return {
         'buy_the_dip': {
             'symbols': 'AAPL,MSFT,GOOGL,AMZN,META,TSLA,NVDA',
-            'dip_threshold': 1.0,
+            'dip_threshold': 5.0,
             'take_profit_threshold': 1.0,
+            'stop_loss_threshold': 0.5,
+            'hold_days': 2,
             'capital_per_trade': 1000.0,
             'max_position_pct': 5.0
         },
@@ -71,7 +74,7 @@ def load_config():
 
 # Import utilities
 from utils.alpaca_util import AlpacaAPI
-from utils.polygon_util import is_market_open as market_open, get_historical_data, get_intraday_prices
+from utils.massive_util import is_market_open as market_open, get_historical_data, get_intraday_prices
 from utils.backtester_util import backtest_buy_the_dip
 import time
 from datetime import datetime, timedelta, timezone
@@ -149,9 +152,11 @@ def log_trade_to_csv(trade_data: dict, csv_path: str = 'reports/sample-back-test
 
 
 
-def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_threshold=1.0, take_profit_threshold=1.0, use_intraday=True):
+def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_threshold=1.0, 
+                                 take_profit_threshold=1.0, stop_loss_threshold=0.5, 
+                                 hold_days=2, use_intraday=True):
     """
-    Execute buy-the-dip strategy
+    Execute buy-the-dip strategy with entry and exit logic
     
     Args:
         client: AlpacaAPI client
@@ -159,31 +164,100 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
         capital_per_trade: Capital to allocate per trade
         dip_threshold: Percentage dip to trigger buy
         take_profit_threshold: Percentage gain to take profit
+        stop_loss_threshold: Percentage loss to stop out
+        hold_days: Minimum days to hold position (PDT/Safety)
     """
     logger.info(f"Executing buy-the-dip strategy for {len(symbols)} symbols")
-    logger.info(f"Parameters: dip_threshold={dip_threshold}%, take_profit_threshold={take_profit_threshold}%")
+    logger.info(f"Parameters: dip={dip_threshold}%, tp={take_profit_threshold}%, sl={stop_loss_threshold}%, hold={hold_days}d")
     
-    # Get account info to check buying power
-    account = client.get_account()
-    if 'error' in account:
-        logger.error(f"Cannot get account info: {account['error']}")
-        return 0, []
+    # 1. PROCESS EXITS (Check existing positions)
+    if client:
+        try:
+            positions = client.get_positions()
+            for pos in positions:
+                symbol = pos.get('symbol')
+                if symbol not in symbols: continue
+                
+                qty = float(pos.get('qty', 0))
+                entry_price = float(pos.get('avg_entry_price', 0))
+                current_price = float(pos.get('current_price', 0))
+                unrealized_pl_pct = (float(pos.get('unrealized_intraday_plpc', 0)) * 100) if 'unrealized_intraday_plpc' in pos else ((current_price - entry_price) / entry_price * 100)
+                
+                # Check hold period (Safety/PDT)
+                # We need to know when the position was opened. Alpaca positions don't easily show entry date.
+                # We'll use get_orders to find the last fill for this symbol.
+                last_fill_date = None
+                try:
+                    orders = client.get_orders(status='filled', symbols=[symbol], limit=1)
+                    if orders:
+                        last_fill_date = datetime.fromisoformat(orders[0]['filled_at'].replace('Z', '+00:00'))
+                except: pass
+                
+                if last_fill_date:
+                    days_held = (datetime.now(timezone.utc) - last_fill_date).days
+                    is_same_day = last_fill_date.date() == datetime.now(timezone.utc).date()
+                else:
+                    days_held = 99 # Assume safe if we can't find it
+                    is_same_day = False
+
+                # PDT Protection: Mandatory overnight hold if account < $25k
+                account = client.get_account()
+                equity = float(account.get('equity', 0))
+                pdt_restricted = equity < 25000
+                
+                can_exit = True
+                if pdt_restricted and is_same_day:
+                    can_exit = False
+                    logger.info(f"  🛑 PDT Protection: {symbol} must be held overnight (Entry: {last_fill_date})")
+                
+                if can_exit:
+                    exit_reason = None
+                    if unrealized_pl_pct >= take_profit_threshold:
+                        exit_reason = f"TAKE PROFIT ({unrealized_pl_pct:.2f}%)"
+                    elif unrealized_pl_pct <= -stop_loss_threshold:
+                        exit_reason = f"STOP LOSS ({unrealized_pl_pct:.2f}%)"
+                    elif days_held >= hold_days:
+                        exit_reason = f"HOLD PERIOD EXPIRED ({days_held} days)"
+                    
+                    if exit_reason:
+                        logger.info(f"  🚀 EXIT SIGNAL: {symbol} - {exit_reason}")
+                        res = client.create_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='day')
+                        if 'error' in res:
+                            logger.error(f"  ❌ Exit failed for {symbol}: {res['error']}")
+                        else:
+                            logger.info(f"  ✅ Exit order placed for {symbol}")
+        except Exception as e:
+            logger.error(f"Error processing exits: {e}")
+
+    # 2. PROCESS ENTRIES
+    if client:
+        account = client.get_account()
+        if 'error' in account:
+            logger.error(f"Cannot get account info: {account['error']}")
+            return 0, []
+        
+        buying_power = float(account.get('buying_power', 0))
+        if buying_power <= 0:
+            logger.warning(f"Insufficient buying power: ${buying_power:.2f}")
+            return 0, []
+        
+        logger.info(f"Available buying power: ${buying_power:,.2f}")
+        
+        # Calculate max position size (5% of buying power)
+        max_position_value = buying_power * 0.05
+    else:
+        buying_power = 100000.0 # Virtual for dry-run
+        max_position_value = 5000.0
+        logger.info(f"DRY RUN: Using virtual buying power ${buying_power:,.2f}")
     
-    buying_power = float(account.get('buying_power', 0))
-    if buying_power <= 0:
-        logger.warning(f"Insufficient buying power: ${buying_power:.2f}")
-        return 0, []
-    
-    logger.info(f"Available buying power: ${buying_power:,.2f}")
-    
-    # Calculate max position size (5% of buying power)
-    max_position_value = buying_power * 0.05
     logger.info(f"Max position size (5% of buying power): ${max_position_value:,.2f}")
     
     trades_executed = 0
     order_ids = []  # Track order IDs for status checking
     
     for symbol in symbols:
+        # Rate limit protection (avoid hitting Massive/Alpaca limits)
+        time.sleep(0.5)
         try:
             # Match backtester logic: Get recent high over 20 periods
             end_date = datetime.now()
@@ -198,7 +272,8 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
             
             # Calculate recent high over 20-period lookback
             lookback_periods = 20
-            recent_high = float(hist['High'].tail(lookback_periods).max())
+            high_series = hist['High'].tail(lookback_periods)
+            recent_high = float(high_series.max())
             
             # Get current price (most recent price available)
             # If intraday is enabled, get today's 1-minute bars
@@ -206,10 +281,12 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
             if use_intraday:
                 today_data = get_intraday_prices(symbol, date=end_date, interval='1')
                 if not today_data.empty:
-                    current_price = float(today_data['Close'].iloc[-1])
+                    val = today_data['Close'].iloc[-1]
+                    current_price = float(val.item()) if hasattr(val, 'item') else float(val)
             
             if current_price is None:
-                current_price = float(hist['Close'].iloc[-1])
+                val = hist['Close'].iloc[-1]
+                current_price = float(val.item()) if hasattr(val, 'item') else float(val)
                 
             dip_pct = ((recent_high - current_price) / recent_high) * 100
             
@@ -257,31 +334,35 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
                     logger.info(f"  Order: {qty} shares @ ${current_price:.2f} = ${order_value:.2f} ({position_pct:.2f}% of buying power)")
                     
                     # Place order
-                    result = client.create_order(
-                        symbol=symbol,
-                        qty=qty,
-                        side='buy',
-                        type='market',
-                        time_in_force='day'
-                    )
-                    
-                    if 'error' in result:
-                        logger.error(f"Order failed for {symbol}: {result['error']}")
+                    if client:
+                        result = client.create_order(
+                            symbol=symbol,
+                            qty=qty,
+                            side='buy',
+                            type='market',
+                            time_in_force='day'
+                        )
+                        
+                        if 'error' in result:
+                            logger.error(f"Order failed for {symbol}: {result['error']}")
+                        else:
+                            order_id = result.get('id')
+                            order_status = result.get('status', 'unknown')
+                            logger.info(f"✅ Order placed: BUY {qty} {symbol} @ market")
+                            logger.info(f"   Order ID: {order_id}, Status: {order_status}")
+                            
+                            if order_id:
+                                order_ids.append({
+                                    'order_id': str(order_id),
+                                    'symbol': symbol,
+                                    'qty': qty,
+                                    'status': str(order_status) if order_status else 'unknown',
+                                    'timestamp': datetime.now(timezone.utc).isoformat()
+                                })
+                            
+                            trades_executed += 1
                     else:
-                        order_id = result.get('id')
-                        order_status = result.get('status', 'unknown')
-                        logger.info(f"✅ Order placed: BUY {qty} {symbol} @ market")
-                        logger.info(f"   Order ID: {order_id}, Status: {order_status}")
-                        
-                        if order_id:
-                            order_ids.append({
-                                'order_id': str(order_id),
-                                'symbol': symbol,
-                                'qty': qty,
-                                'status': str(order_status) if order_status else 'unknown',
-                                'timestamp': datetime.now(timezone.utc).isoformat()
-                            })
-                        
+                        logger.info(f"DRY RUN: Would place BUY order for {qty} shares of {symbol} @ ~${current_price:.2f}")
                         trades_executed += 1
                         
                         # Update buying power after successful order
@@ -472,6 +553,15 @@ def main():
     parser.add_argument('--once', action='store_true',
                        help='Run once and exit (default: run continuously)')
     
+    
+    parser.add_argument('--hold-days', type=int,
+                       default=config.get('buy_the_dip', {}).get('hold_days', 2),
+                       help='Minimum days to hold position (default: 2)')
+    
+    parser.add_argument('--stop-loss-threshold', type=float,
+                       default=config.get('buy_the_dip', {}).get('stop_loss_threshold', 0.5),
+                       help='Stop loss threshold percentage for buy-the-dip strategy')
+    
     parser.add_argument('--interval', type=int,
                        default=config.get('general', {}).get('polling_interval', 300),
                        help='Polling interval in seconds for continuous mode')
@@ -485,6 +575,12 @@ def main():
     logger.info(f"CLI Trader Started - {datetime.now()}")
     logger.info(f"Strategy: {args.strategy}")
     logger.info(f"Mode: {args.mode.upper()}")
+    
+    # Data source logging
+    data_source = config.get('general', {}).get('market_data_source', 'massive').lower()
+    source_display = "Massive" if data_source in ['massive', 'polygon'] else data_source.capitalize()
+    logger.info(f"Data Source: {source_display}")
+    
     logger.info(f"Symbols: {', '.join(symbols)}")
     logger.info(f"Dry Run: {args.dry_run}")
     logger.info("="*60)
@@ -499,7 +595,14 @@ def main():
         # Initialize client
         if not args.dry_run:
             client = get_alpaca_client(args.mode)
-            logger.info(f"✅ Connected to Alpaca ({args.mode.upper()} mode)")
+            
+            # Validate keys by attempting to fetch account info
+            account = client.get_account()
+            if 'error' in account:
+                logger.error(f"❌ API Key Validation Failed: {account['error']}")
+                sys.exit(1)
+                
+            logger.info(f"✅ Connected to Alpaca ({args.mode.upper()} mode) - Keys Validated")
         else:
             logger.info("DRY RUN MODE - No actual trades will be executed")
             client = None
@@ -521,19 +624,16 @@ def main():
                     logger.info("DRY RUN: Would close all positions")
                     
             elif args.strategy == 'buy-the-dip':
-                if client:
-                    trades_executed, order_ids = execute_buy_the_dip_strategy(
-                        client,
-                        symbols,
-                        capital_per_trade=args.capital,
-                        dip_threshold=args.dip_threshold,
-                        take_profit_threshold=getattr(args, 'take_profit_threshold', config.get('buy_the_dip', {}).get('take_profit_threshold', 1.0)),
-                        use_intraday=True
-                    )
-                else:
-                    take_profit = getattr(args, 'take_profit_threshold', config.get('buy_the_dip', {}).get('take_profit_threshold', 1.0))
-                    logger.info(f"DRY RUN: Would execute buy-the-dip strategy")
-                    logger.info(f"Parameters: capital=${args.capital}, dip_threshold={args.dip_threshold}%, take_profit={take_profit}%")
+                trades_executed, order_ids = execute_buy_the_dip_strategy(
+                    client, # Can be None for dry-run
+                    symbols,
+                    capital_per_trade=args.capital,
+                    dip_threshold=args.dip_threshold,
+                    take_profit_threshold=args.take_profit_threshold,
+                    stop_loss_threshold=args.stop_loss_threshold,
+                    hold_days=args.hold_days,
+                    use_intraday=True
+                )
             
             return order_ids
         

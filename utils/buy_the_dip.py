@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 import yfinance as yf
 import pytz
-from utils.polygon_util import is_market_open
+from utils.massive_util import is_market_open, MassiveUtil
+massive_util = MassiveUtil()
 
 
 def get_intraday_data(ticker: str, interval: str = '1d', period: str = '30d') -> pd.DataFrame:
@@ -116,7 +117,7 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                         initial_capital: float = 10000, position_size: float = 0.1,
                         dip_threshold: float = 0.02, hold_days: int = 2,
                         take_profit: float = 0.01, stop_loss: float = 0.005,
-                        interval: str = '1d', data_source: str = 'polygon',
+                        interval: str = '1d', data_source: str = 'massive',
                         include_taf_fees: bool = False, include_cat_fees: bool = False,
                         pdt_protection: Optional[bool] = None) -> Tuple[pd.DataFrame, Dict]:
     """
@@ -136,7 +137,7 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
         take_profit: Take profit percentage (e.g., 0.01 = 1%)
         stop_loss: Stop loss percentage (e.g., 0.005 = 0.5%)
         interval: Data interval ('1d', '60m', '30m', '15m', '5m')
-        data_source: Data source ('yfinance' or 'polygon')
+        data_source: Data source ('yfinance' or 'massive')
         include_taf_fees: Include FINRA TAF fees
         include_cat_fees: Include Consolidated Audit Trail fees
         pdt_protection: If True, prevents same-day exits. Defaults to True if initial_capital < $25k.
@@ -168,15 +169,30 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
         period = '60d'
     
     # Fetch data based on source
-    if data_source == 'polygon' or (data_source == 'yfinance' and interval != '1d'):
-        # Use intraday data
-        price_data = {}
+    price_data = {}
+    if data_source == 'massive':
+        # Use Massive (with yf fallback)
+        from datetime import datetime
+        # Estimate start date for intraday if needed
+        data_start = start_date - timedelta(days=60)
+        for symbol in symbols:
+            # For backtesting, we might need a range of dates. 
+            # MassiveUtil._get_massive_historical returns a range.
+            df = massive_util.get_historical_data(symbol, data_start, end_date, timeframe='minute' if interval != '1d' else 'day', interval=1)
+            if not df.empty:
+                # Ensure timezone aware
+                if df.index.tz is None:
+                    df.index = df.index.tz_localize('UTC')
+                price_data[symbol] = df
+                
+    elif (data_source == 'yfinance' and interval != '1d'):
+        # Use intraday data from yfinance
         for symbol in symbols:
             df = get_intraday_data(symbol, interval=interval, period=period)
             if not df.empty:
                 price_data[symbol] = df
     else:
-        # Use daily data
+        # Use daily data from yfinance
         price_data = get_historical_data(symbols, start_date - timedelta(days=40), end_date)
     
     if not price_data:

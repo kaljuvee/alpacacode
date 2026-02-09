@@ -8,7 +8,7 @@ Updated `.env` and `.env.example` with:
 - **ALPACA_PAPER_API_KEY**: PKWSHV3AS4J71TGOQEOC
 - **ALPACA_PAPER_SECRET_KEY**: wffi5PYdLHI2N/6Kfqx6LBTuVlfURGgOp9u5mXo5
 - **EODHD_API_KEY**: 6450f2e5630b53.53578730
-- **POLYGON_API_KEY**: 3lKo1IgQ3hXMjMCkmbQACTJySZHkfld7 (backup)
+- **MASSIVE_API_KEY**: 3lKo1IgQ3hXMjMCkmbQACTJySZHkfld7
 - **DB_URL**: postgresql://indurent_db_user:mORTX4lmewn7ZJsMiU7Ox7Qb8gnxPRgf@dpg-d40gneur433s738clpeg-a.frankfurt-postgres.render.com/indurent_db
 - **DB_SCHEMA**: trading
 

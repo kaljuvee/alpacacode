@@ -355,7 +355,7 @@ class AlpacaAPI:
             return {"error": str(e)}
     
     def get_latest_price(self, symbol: str, use_alpaca: bool = False) -> Optional[float]:
-        """Get the latest price for a symbol using Polygon API (default) or Alpaca."""
+        """Get the latest price for a symbol using Massive API (default) or Alpaca."""
         try:
             if use_alpaca:
                 # Use Alpaca data API
@@ -368,15 +368,15 @@ class AlpacaAPI:
                     return float(quote[symbol].ask_price)
                 return None
             else:
-                # Use Polygon API (default)
-                polygon_api_key = os.getenv('POLYGON_API_KEY')
-                if not polygon_api_key:
-                    logger.warning("POLYGON_API_KEY not found, falling back to Alpaca")
+                # Use Massive API (default)
+                massive_api_key = os.getenv('MASSIVE_API_KEY') or os.getenv('POLYGON_API_KEY')
+                if not massive_api_key:
+                    logger.warning("MASSIVE_API_KEY not found, falling back to Alpaca")
                     return self.get_latest_price(symbol, use_alpaca=True)
                 
-                # Polygon API call for latest price
+                # Massive API call for latest price
                 url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
-                params = {'apikey': polygon_api_key}
+                params = {'apikey': massive_api_key}
                 
                 response = requests.get(url, params=params, timeout=10)
                 response.raise_for_status()
@@ -390,7 +390,7 @@ class AlpacaAPI:
                     elif 'min' in result and result['min']:
                         return float(result['min']['c'])  # Current day's close
                 
-                logger.warning(f"No price data found for {symbol} in Polygon response")
+                logger.warning(f"No price data found for {symbol} in Massive response")
                 return None
                 
         except Exception as e:

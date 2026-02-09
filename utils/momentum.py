@@ -244,7 +244,7 @@ def backtest_momentum_strategy(
     if not trades:
         return None
     
-    trades_df = pd.DataFrame(trades)
+    trades_df = pd.DataFrame(trades).sort_values('exit_time')
     
     # Calculate metrics
     metrics = calculate_metrics(trades_df, initial_capital, start_date, end_date)

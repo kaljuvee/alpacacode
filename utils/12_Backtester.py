@@ -146,7 +146,7 @@ if st.button("Run Backtest"):
                 st.subheader("Equity Curve")
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=trades_df['entry_time'],
+                    x=trades_df['exit_time'],
                     y=trades_df['capital_after'],
                     mode='lines+markers',
                     name='Portfolio Value'

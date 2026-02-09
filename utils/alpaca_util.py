@@ -89,8 +89,8 @@ class AlpacaAPI:
             logger.error(f"API request failed: {e}")
             return {"error": str(e)}
 
-    def create_order(self, symbol, qty, side, type='market', time_in_force='day', **kwargs):
-        from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, StopOrderRequest, StopLimitOrderRequest, TrailingStopOrderRequest
+    def create_order(self, symbol, qty=None, side='buy', type='market', time_in_force='day', notional=None, **kwargs):
+        from alpaca.trading.requests import MarketOrderRequest
         from alpaca.trading.enums import OrderSide, TimeInForce
         try:
             # Enforce market orders only
@@ -101,7 +101,11 @@ class AlpacaAPI:
             tif_enum = TimeInForce.DAY if time_in_force.lower() == 'day' else TimeInForce.GTC
             
             # Only create market orders
-            req = MarketOrderRequest(symbol=symbol, qty=qty, side=side_enum, time_in_force=tif_enum)
+            if notional is not None:
+                req = MarketOrderRequest(symbol=symbol, notional=notional, side=side_enum, time_in_force=tif_enum)
+            else:
+                req = MarketOrderRequest(symbol=symbol, qty=qty, side=side_enum, time_in_force=tif_enum)
+                
             order = self.trading_client.submit_order(req)
             order_dict = order.dict()
             

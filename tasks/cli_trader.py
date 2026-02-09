@@ -12,6 +12,7 @@ import yaml
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 import logging
+import json
 import pandas as pd
 from pathlib import Path
 
@@ -81,6 +82,60 @@ from datetime import datetime, timedelta, timezone
 import pytz
 
 
+def load_tracked_positions():
+    """Load tracked positions from local JSONL file"""
+    positions = {}
+    path = Path("data/tracked_positions.jsonl")
+    if path.exists():
+        try:
+            with open(path, "r") as f:
+                for line in f:
+                    if line.strip():
+                        data = json.loads(line)
+                        symbol = data.get("symbol")
+                        if symbol:
+                            positions[symbol] = data
+        except Exception as e:
+            logger.error(f"Error loading tracked positions: {e}")
+    return positions
+
+
+def save_tracked_position(symbol, entry_data):
+    """Save or update a tracked position"""
+    positions = load_tracked_positions()
+    positions[symbol] = {
+        "symbol": symbol,
+        "entry_time": entry_data.get("entry_time"),
+        "entry_price": entry_data.get("entry_price"),
+        "qty": float(entry_data.get("qty", 0)),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    path = Path("data/tracked_positions.jsonl")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(path, "w") as f:
+            for pos in positions.values():
+                f.write(json.dumps(pos) + "\n")
+    except Exception as e:
+        logger.error(f"Error saving tracked positions: {e}")
+
+
+def remove_tracked_position(symbol):
+    """Remove a position from tracking after exit"""
+    positions = load_tracked_positions()
+    if symbol in positions:
+        del positions[symbol]
+        path = Path("data/tracked_positions.jsonl")
+        try:
+            with open(path, "w") as f:
+                for pos in positions.values():
+                    f.write(json.dumps(pos) + "\n")
+            logger.info(f"Removed {symbol} from local tracking")
+        except Exception as e:
+            logger.error(f"Error updating tracked positions after removal: {e}")
+
+
 def get_alpaca_client(mode='paper'):
     """Initialize Alpaca client"""
     if mode == 'paper':
@@ -130,22 +185,22 @@ def log_trade_to_csv(trade_data: dict, csv_path: str = 'reports/sample-back-test
                 'entry_time': trade_data.get('entry_time', ''),
                 'exit_time': trade_data.get('exit_time', 'OPEN'),
                 'ticker': trade_data.get('ticker', ''),
-                'shares': trade_data.get('shares', 0),
-                'entry_price': f"${trade_data.get('entry_price', 0):.2f}",
-                'exit_price': f"${trade_data.get('exit_price', 0):.2f}" if trade_data.get('exit_price') else 'PENDING',
-                'pnl': f"${trade_data.get('pnl', 0):.2f}" if trade_data.get('pnl') is not None else 'PENDING',
-                'pnl_pct': f"{trade_data.get('pnl_pct', 0):.2f}%" if trade_data.get('pnl_pct') is not None else 'PENDING',
+                'shares': float(trade_data.get('shares', 0)),
+                'entry_price': f"${float(trade_data.get('entry_price', 0)):.2f}",
+                'exit_price': f"${float(trade_data.get('exit_price', 0)):.2f}" if trade_data.get('exit_price') else 'PENDING',
+                'pnl': f"${float(trade_data.get('pnl', 0)):.2f}" if trade_data.get('pnl') is not None else 'PENDING',
+                'pnl_pct': f"{float(trade_data.get('pnl_pct', 0)):.2f}%" if trade_data.get('pnl_pct') is not None else 'PENDING',
                 'hit_target': str(trade_data.get('hit_target', False)).lower(),
                 'hit_stop': str(trade_data.get('hit_stop', False)).lower(),
-                'capital_after': f"${trade_data.get('capital_after', 0):,.2f}" if trade_data.get('capital_after') else 'PENDING',
-                'taf_fee': f"${trade_data.get('taf_fee', 0):.2f}",
-                'cat_fee': f"${trade_data.get('cat_fee', 0):.2f}",
-                'total_fees': f"${trade_data.get('total_fees', 0):.2f}",
-                'dip_pct': f"{trade_data.get('dip_pct', 0):.2f}%"
+                'capital_after': f"${float(trade_data.get('capital_after', 0)):,.2f}" if trade_data.get('capital_after') else 'PENDING',
+                'taf_fee': f"${float(trade_data.get('taf_fee', 0)):.2f}",
+                'cat_fee': f"${float(trade_data.get('cat_fee', 0)):.2f}",
+                'total_fees': f"${float(trade_data.get('total_fees', 0)):.2f}",
+                'dip_pct': f"{float(trade_data.get('dip_pct', 0)):.2f}%"
             }
             
             writer.writerow(formatted_trade)
-            logger.info(f"Trade logged to {csv_path}: {trade_data.get('ticker')} - {trade_data.get('shares')} shares")
+            logger.info(f"Trade logged to {csv_path}: {trade_data.get('ticker')} - {formatted_trade['shares']} shares")
             
     except Exception as e:
         logger.error(f"Error logging trade to CSV: {str(e)}")
@@ -174,6 +229,8 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
     
     # 1. PROCESS EXITS (Check existing positions)
     existing_symbols = set()
+    tracked_positions = load_tracked_positions()
+    
     if client:
         try:
             positions = client.get_positions()
@@ -188,15 +245,29 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
                 current_price = float(pos.get('current_price', 0))
                 unrealized_pl_pct = (float(pos.get('unrealized_intraday_plpc', 0)) * 100) if 'unrealized_intraday_plpc' in pos else ((current_price - entry_price) / entry_price * 100)
                 
-                # Check hold period (Safety/PDT)
-                # We need to know when the position was opened. Alpaca positions don't easily show entry date.
-                # We'll use get_orders to find the last fill for this symbol.
+                # Check hold period (Safety/PDT) using local tracking first
                 last_fill_date = None
-                try:
-                    orders = client.get_orders(status='filled', symbols=[symbol], limit=1)
-                    if orders:
-                        last_fill_date = datetime.fromisoformat(orders[0]['filled_at'].replace('Z', '+00:00'))
-                except: pass
+                if symbol in tracked_positions:
+                    try:
+                        last_fill_date = datetime.fromisoformat(tracked_positions[symbol]['entry_time'])
+                        logger.info(f"  📂 Using tracked entry date for {symbol}: {last_fill_date}")
+                    except Exception as e:
+                        logger.warning(f"Error parsing tracked entry time for {symbol}: {e}")
+                
+                if not last_fill_date:
+                    # Fallback to API if not in local tracking
+                    try:
+                        orders = client.get_orders(status='filled', symbols=[symbol], limit=1)
+                        if orders:
+                            last_fill_date = datetime.fromisoformat(orders[0]['filled_at'].replace('Z', '+00:00'))
+                            # Save to tracking for next time
+                            save_tracked_position(symbol, {
+                                'entry_time': last_fill_date.isoformat(),
+                                'entry_price': entry_price,
+                                'qty': qty
+                            })
+                    except Exception as e:
+                        logger.debug(f"Could not fetch last fill for {symbol}: {e}")
                 
                 if last_fill_date:
                     days_held = (datetime.now(timezone.utc) - last_fill_date).days
@@ -229,15 +300,17 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
                         if dry_run:
                             logger.info(f"  DRY RUN: Would place EXIT order for {symbol}")
                             trades_executed += 1
+                            remove_tracked_position(symbol)
                         else:
-                            res = client.create_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='day')
+                            res = client.close_position(symbol=symbol)
                             if 'error' in res:
                                 logger.error(f"  ❌ Exit failed for {symbol}: {res['error']}")
                             else:
                                 logger.info(f"  ✅ Exit order placed for {symbol}")
                                 trades_executed += 1
+                                remove_tracked_position(symbol)
         except Exception as e:
-            logger.error(f"Error processing exits: {e}")
+            logger.error(f"Error processing exits: {e}", exc_info=True)
 
     # 2. PROCESS ENTRIES
     if client:
@@ -291,8 +364,7 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
             max_val = high_series.max()
             recent_high = float(max_val.iloc[0]) if hasattr(max_val, 'iloc') else float(max_val)
             
-            # Get current price (most recent price available)
-            # If intraday is enabled, get today's 1-minute bars
+            # Get current price
             current_price = None
             if use_intraday:
                 today_data = get_intraday_prices(symbol, date=end_date, interval='1')
@@ -322,90 +394,84 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
                             continue
                     except Exception as pos_err:
                         logger.warning(f"Error checking position for {symbol}: {pos_err}")
-                        # Continue anyway if position check fails
                 
                 # Calculate quantity based on capital_per_trade, but cap at 5% of buying power
                 position_value = min(capital_per_trade, max_position_value)
-                qty = int(position_value / current_price)
                 
-                # Verify we don't exceed buying power
-                order_value = qty * current_price
-                if order_value > buying_power:
-                    logger.warning(f"Cannot place order for {symbol}: order value ${order_value:.2f} exceeds buying power ${buying_power:.2f}")
+                # Verify we don't exceed buying power (redundant with min but safe)
+                if position_value > buying_power:
+                    logger.warning(f"Cannot place order for {symbol}: value ${position_value:.2f} exceeds buying power ${buying_power:.2f}")
                     continue
                 
-                # Check position size as percentage of buying power
-                position_pct = (order_value / buying_power) * 100
-                if position_pct > 5.0:
-                    # Recalculate to ensure exactly 5% max
-                    max_order_value = buying_power * 0.05
-                    qty = int(max_order_value / current_price)
-                    order_value = qty * current_price
-                    position_pct = (order_value / buying_power) * 100
-                    logger.info(f"Position size capped at 5% of buying power for {symbol}")
-                
-                if qty > 0:
-                    logger.info(f"BUY SIGNAL: {symbol} - Dip {dip_pct:.2f}% >= {dip_threshold}%")
-                    logger.info(f"  Order: {qty} shares @ ${current_price:.2f} = ${order_value:.2f} ({position_pct:.2f}% of buying power)")
+                # Place order
+                if not dry_run and client:
+                    result = client.create_order(
+                        symbol=symbol,
+                        notional=position_value,
+                        side='buy',
+                        type='market',
+                        time_in_force='day'
+                    )
                     
-                    # Place order
-                    if not dry_run and client:
-                        result = client.create_order(
-                            symbol=symbol,
-                            qty=qty,
-                            side='buy',
-                            type='market',
-                            time_in_force='day'
-                        )
-                        
-                        if 'error' in result:
-                            logger.error(f"Order failed for {symbol}: {result['error']}")
-                        else:
-                            order_id = result.get('id')
-                            order_status = result.get('status', 'unknown')
-                            logger.info(f"✅ Order placed: BUY {qty} {symbol} @ market")
-                            logger.info(f"   Order ID: {order_id}, Status: {order_status}")
-                            
-                            if order_id:
-                                order_ids.append({
-                                    'order_id': str(order_id),
-                                    'symbol': symbol,
-                                    'qty': qty,
-                                    'status': str(order_status) if order_status else 'unknown',
-                                    'timestamp': datetime.now(timezone.utc).isoformat()
-                                })
-                            
-                            trades_executed += 1
+                    if 'error' in result:
+                        logger.error(f"Order failed for {symbol}: {result['error']}")
                     else:
-                        logger.info(f"DRY RUN: Would place BUY order for {qty} shares of {symbol} @ ~${current_price:.2f}")
+                        order_id = result.get('id')
+                        order_status = result.get('status', 'unknown')
+                        logger.info(f"✅ Order placed: BUY ${position_value:.2f} of {symbol} @ market (Notional Order)")
+                        logger.info(f"   Order ID: {order_id}, Status: {order_status}")
+                        
+                        if order_id:
+                            order_ids.append({
+                                'order_id': str(order_id),
+                                'symbol': symbol,
+                                'notional': position_value,
+                                'status': str(order_status) if order_status else 'unknown',
+                                'timestamp': datetime.now(timezone.utc).isoformat()
+                            })
+                            # Local tracking (approximate qty, will be updated on fill if needed)
+                            save_tracked_position(symbol, {
+                                'entry_time': datetime.now(timezone.utc).isoformat(),
+                                'entry_price': current_price,
+                                'qty': position_value / current_price
+                            })
+                        
                         trades_executed += 1
-                        
-                        # Update buying power after successful order
-                        buying_power -= order_value
-                        max_position_value = buying_power * 0.05
-                        logger.info(f"Remaining buying power: ${buying_power:,.2f}")
-                        
-                        # Log trade to CSV
-                        trade_data = {
-                            'entry_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                            'exit_time': None,  # Will be updated when position is closed
-                            'ticker': symbol,
-                            'shares': qty,
-                            'entry_price': current_price,
-                            'exit_price': None,  # Pending
-                            'pnl': None,  # Pending
-                            'pnl_pct': None,  # Pending
-                            'hit_target': False,
-                            'hit_stop': False,
-                            'capital_after': None,  # Would need account tracking
-                            'taf_fee': 0.0,
-                            'cat_fee': 0.0,
-                            'total_fees': 0.0,
-                            'dip_pct': dip_pct
-                        }
-                        log_trade_to_csv(trade_data)
                 else:
-                    logger.warning(f"Quantity too small for {symbol} (${current_price:.2f})")
+                    logger.info(f"DRY RUN: Would place BUY order for ${position_value:.2f} of {symbol} (~{position_value/current_price:.2f} shares) @ ~${current_price:.2f}")
+                    trades_executed += 1
+                    
+                    # Update local tracking for dry run
+                    save_tracked_position(symbol, {
+                        'entry_time': datetime.now(timezone.utc).isoformat(),
+                        'entry_price': current_price,
+                        'qty': position_value / current_price
+                    })
+
+                    # Update buying power after successful order
+                    buying_power -= position_value
+                    max_position_value = buying_power * 0.05
+                    logger.info(f"Remaining buying power: ${buying_power:,.2f}")
+                    
+                    # Log trade to CSV
+                    trade_data = {
+                        'entry_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                        'exit_time': None,
+                        'ticker': symbol,
+                        'shares': position_value / current_price,
+                        'entry_price': current_price,
+                        'exit_price': None,
+                        'pnl': None,
+                        'pnl_pct': None,
+                        'hit_target': False,
+                        'hit_stop': False,
+                        'capital_after': None,
+                        'taf_fee': 0.0,
+                        'cat_fee': 0.0,
+                        'total_fees': 0.0,
+                        'dip_pct': dip_pct
+                    }
+                    log_trade_to_csv(trade_data)
                 
         except Exception as e:
             logger.error(f"Error processing {symbol}: {str(e)}")

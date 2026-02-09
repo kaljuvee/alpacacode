@@ -68,7 +68,7 @@ def run_test_combinations():
         try:
             results = case["fn"](**case["params"])
             if results:
-                trades_df, metrics = results
+                trades_df, metrics = results[0], results[1]
                 print(f"Success! {len(trades_df)} trades generated.")
                 print(f"Total Return: {metrics['total_return']:.2f}%")
                 

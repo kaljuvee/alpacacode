@@ -270,7 +270,7 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                         take_profit: float = 0.01, stop_loss: float = 0.005,
                         interval: str = '1d', data_source: str = 'polygon',
                         include_taf_fees: bool = False, include_cat_fees: bool = False,
-                        pdt_protection: Optional[bool] = None) -> Tuple[pd.DataFrame, Dict]:
+                        pdt_protection: Optional[bool] = None) -> Tuple[pd.DataFrame, Dict, pd.DataFrame]:
     """
     Backtest buy-the-dip strategy (wrapper for backward compatibility)
     

@@ -142,7 +142,7 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
         pdt_protection: If True, prevents same-day exits. Defaults to True if initial_capital < $25k.
     
     Returns:
-        Tuple of (trades_df, metrics_dict)
+        Tuple of (trades_df, metrics_dict, equity_df)
     """
     
     # Import calculate_metrics from backtester_util
@@ -212,6 +212,8 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
     
     sorted_timestamps = sorted([t for t in all_timestamps if start_date <= t <= end_date])
     
+    equity_curve = []
+    
     for current_date in sorted_timestamps:
         # Adjust time for daily data reporting
         display_time = current_date
@@ -263,6 +265,18 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                 available_capital += (trade['entry_price'] * trade['shares']) + pnl
                 pnl_pct = ((exit_price - trade['entry_price']) / trade['entry_price']) * 100
                 
+                # Calculate total equity (Cash + Market Value of REMAINING positions)
+                total_market_value = 0
+                for open_symbol, open_trade in active_trades.items():
+                    if open_symbol == symbol: continue # This one just closed
+                    try:
+                        cur_p = float(price_data[open_symbol].loc[current_date, 'Close'])
+                    except KeyError:
+                        cur_p = float(price_data[open_symbol][:current_date]['Close'].iloc[-1])
+                    total_market_value += open_trade['shares'] * cur_p
+                
+                total_equity = available_capital + total_market_value
+                
                 trades.append({
                     'entry_time': trade['entry_time'],
                     'exit_time': exit_display_time,
@@ -279,7 +293,7 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                     'SL': 1 if hit_sl and not hit_tp else 0,
                     'pnl': pnl,
                     'pnl_pct': pnl_pct,
-                    'capital_after': available_capital,
+                    'capital_after': total_equity,
                     'dip_pct': trade['dip_pct'] * 100,
                     'taf_fee': taf_fee,
                     'cat_fee': cat_fee_buy + cat_fee_sell,
@@ -332,10 +346,44 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                     'max_exit_time': current_date + timedelta(days=hold_days),
                     'dip_pct': dip_pct
                 }
+        
+        # 3. RECORD EQUITY AT END OF TICK
+        total_open_value = 0
+        for open_symbol, open_trade in active_trades.items():
+            try:
+                cur_p = float(price_data[open_symbol].loc[current_date, 'Close'])
+            except KeyError:
+                cur_p = float(price_data[open_symbol][:current_date]['Close'].iloc[-1])
+            total_open_value += open_trade['shares'] * cur_p
+        
+        tick_equity = available_capital + total_open_value
+        equity_curve.append({
+            'timestamp': display_time,
+            'equity': tick_equity
+        })
     
     if not trades:
         return None
     
     trades_df = pd.DataFrame(trades).sort_values('exit_time')
+    equity_df = pd.DataFrame(equity_curve)
+    
+    # Calculate metrics using equity curve for drawdown for better accuracy
     metrics = calculate_metrics(trades_df, initial_capital, start_date, end_date)
-    return trades_df, metrics
+    
+    # Override drawdown and annualized return if we have equity_df
+    if not equity_df.empty:
+        # Annualized return from equity curve
+        final_equity = equity_df['equity'].iloc[-1]
+        days = (end_date - start_date).days
+        years = days / 365.25
+        if years > 0:
+            metrics['annualized_return'] = ((final_equity / initial_capital) ** (1 / years) - 1) * 100
+        
+        # Max drawdown from equity curve
+        ec = equity_df['equity'].values
+        running_max = np.maximum.accumulate(ec)
+        drawdown = (ec - running_max) / running_max
+        metrics['max_drawdown'] = abs(drawdown.min()) * 100
+        
+    return trades_df, metrics, equity_df

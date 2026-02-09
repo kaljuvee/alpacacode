@@ -406,7 +406,12 @@ if st.button("🚀 Run Backtest", type="primary", use_container_width=True):
                 st.error("❌ No trades were generated during the backtest period. Try adjusting parameters or date range.")
                 st.stop()
             
-            trades_df, metrics = results
+            results_data = results
+            if len(results_data) == 3:
+                trades_df, metrics, equity_df = results_data
+            else:
+                trades_df, metrics = results_data
+                equity_df = pd.DataFrame()
             
             # Display results
             st.success("✅ Backtest completed successfully!")
@@ -500,15 +505,25 @@ if st.button("🚀 Run Backtest", type="primary", use_container_width=True):
             # Create equity curve chart
             fig = go.Figure()
             
-            # Strategy performance
-            fig.add_trace(go.Scatter(
-                x=trades_df['entry_time'],
-                y=trades_df['capital_after'],
-                mode='lines+markers',
-                name='Strategy Performance',
-                line=dict(color='#1f77b4', width=2),
-                marker=dict(size=6)
-            ))
+            # Strategy performance (Equity Curve)
+            if not equity_df.empty:
+                fig.add_trace(go.Scatter(
+                    x=equity_df['timestamp'],
+                    y=equity_df['equity'],
+                    mode='lines',
+                    name='Strategy Performance',
+                    line=dict(color='#1f77b4', width=2)
+                ))
+            else:
+                # Fallback to trade exits if no live equity curve exists
+                fig.add_trace(go.Scatter(
+                    x=trades_df['exit_time'],
+                    y=trades_df['capital_after'],
+                    mode='lines+markers',
+                    name='Strategy Performance (Exits)',
+                    line=dict(color='#1f77b4', width=2),
+                    marker=dict(size=6)
+                ))
             
             # Portfolio buy-and-hold
             if not portfolio_values.empty:

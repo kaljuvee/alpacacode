@@ -64,6 +64,7 @@ cp .env.example .env
 # ALPACA_PAPER_SECRET_KEY=your_paper_secret
 # Optional: for intraday prices (recommended for live/loop mode)
 # EODHD_API_KEY=your_eodhd_api_key
+# MASSIVE_API_KEY=your_massive_key
 ```
 
 2) Configure trading parameters (optional)

@@ -275,7 +275,7 @@ Type 'help' for available commands.
             take_profit=take_profit / 100,
             stop_loss=stop_loss / 100,
             interval=interval,
-            data_source=params.get('data_source', 'polygon').replace('polymarket', 'polygon'),
+            data_source=params.get('data_source', 'massive').replace('polygon', 'massive').replace('polymarket', 'massive'),
             include_taf_fees=True,
             include_cat_fees=True
         )
@@ -343,7 +343,7 @@ Type 'help' for available commands.
             take_profit_pct=take_profit,
             stop_loss_pct=stop_loss,
             interval=interval,
-            data_source=params.get('data_source', 'polygon').replace('polymarket', 'polygon'),
+            data_source=params.get('data_source', 'massive').replace('polygon', 'massive').replace('polymarket', 'massive'),
             include_taf_fees=True,
             include_cat_fees=True
         )

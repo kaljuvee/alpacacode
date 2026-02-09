@@ -81,7 +81,7 @@ st.sidebar.subheader("Data Configuration")
 # Data source selection
 data_source = st.sidebar.selectbox(
     "Data Source",
-    ["yfinance"],
+    ["yfinance", "massive"],
     help="Data source for historical prices"
 )
 

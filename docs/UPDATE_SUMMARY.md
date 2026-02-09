@@ -8,7 +8,7 @@ Updated `.env` and `.env.example` with:
 - **ALPACA_PAPER_API_KEY**: ***REDACTED***
 - **ALPACA_PAPER_SECRET_KEY**: ***REDACTED***
 - **EODHD_API_KEY**: ***REDACTED***
-- **POLYGON_API_KEY**: ***REDACTED*** (backup)
+- **MASSIVE_API_KEY**: ***REDACTED***
 - **DB_URL**: postgresql://***REDACTED***:***REDACTED***@***REDACTED***/indurent_db
 - **DB_SCHEMA**: trading
 

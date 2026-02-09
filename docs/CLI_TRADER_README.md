@@ -235,7 +235,7 @@ ALPACA_LIVE_SECRET_KEY=your_live_secret_key
 # Market Data APIs
 EODHD_API_KEY=your_eodhd_api_key   # used for intraday prices in CLI loop
 # Optional fallback:
-POLYGON_API_KEY=your_polygon_key
+MASSIVE_API_KEY=your_massive_key
 ```
 
 ## Safety Features

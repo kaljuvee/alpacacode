@@ -149,6 +149,7 @@ Type 'help' for available commands.
                 hold_days = params.get('hold', 1)
                 take_profit = params.get('takeprofit', 1.0)
                 stop_loss = params.get('stoploss', 0.5)
+                data_source = params.get('data_source', 'massive').replace('polygon', 'massive').replace('polymarket', 'massive')
                 
                 # Run backtest
                 result_md = await self._run_buy_the_dip_backtest(
@@ -161,7 +162,8 @@ Type 'help' for available commands.
                     hold_days=hold_days,
                     take_profit=take_profit,
                     stop_loss=stop_loss,
-                    interval=interval
+                    interval=interval,
+                    data_source=data_source
                 )
                 return result_md
                 
@@ -171,6 +173,7 @@ Type 'help' for available commands.
                 hold_days = params.get('hold', 5)
                 take_profit = params.get('takeprofit', 10.0)
                 stop_loss = params.get('stoploss', 5.0)
+                data_source = params.get('data_source', 'massive').replace('polygon', 'massive').replace('polymarket', 'massive')
                 
                 # Run backtest
                 result_md = await self._run_momentum_backtest(
@@ -184,7 +187,8 @@ Type 'help' for available commands.
                     hold_days=hold_days,
                     take_profit=take_profit,
                     stop_loss=stop_loss,
-                    interval=interval
+                    interval=interval,
+                    data_source=data_source
                 )
                 return result_md
             else:
@@ -258,7 +262,8 @@ Type 'help' for available commands.
         hold_days,
         take_profit,
         stop_loss,
-        interval
+        interval,
+        data_source
     ) -> str:
         """Run buy-the-dip backtest and return markdown results."""
         from utils.backtester_util import backtest_buy_the_dip
@@ -275,13 +280,13 @@ Type 'help' for available commands.
             take_profit=take_profit / 100,
             stop_loss=stop_loss / 100,
             interval=interval,
-            data_source=params.get('data_source', 'massive').replace('polygon', 'massive').replace('polymarket', 'massive'),
+            data_source=data_source,
             include_taf_fees=True,
             include_cat_fees=True
         )
         
         if results is not None:
-            trades_df, _ = results
+            trades_df, _, _ = results  # Unpack all 3 values: trades_df, metrics, equity_curve
             from pathlib import Path
             output_dir = Path("backtest-results")
             output_dir.mkdir(exist_ok=True)
@@ -292,7 +297,7 @@ Type 'help' for available commands.
         if results is None:
             return "# No Results\n\nNo trades were generated during the backtest period. Try adjusting parameters or date range."
         
-        trades_df, metrics = results
+        trades_df, metrics, _ = results  # Unpack all 3 values
         
         # Format results as markdown
         return self._format_backtest_results(
@@ -325,7 +330,8 @@ Type 'help' for available commands.
         hold_days,
         take_profit,
         stop_loss,
-        interval
+        interval,
+        data_source
     ) -> str:
         """Run momentum backtest and return markdown results."""
         from utils.backtester_util import backtest_momentum_strategy
@@ -343,13 +349,13 @@ Type 'help' for available commands.
             take_profit_pct=take_profit,
             stop_loss_pct=stop_loss,
             interval=interval,
-            data_source=params.get('data_source', 'massive').replace('polygon', 'massive').replace('polymarket', 'massive'),
+            data_source=data_source,
             include_taf_fees=True,
             include_cat_fees=True
         )
         
         if results is not None:
-            trades_df, _ = results
+            trades_df, _, _ = results  # Unpack all 3 values: trades_df, metrics, equity_curve
             from pathlib import Path
             output_dir = Path("backtest-results")
             output_dir.mkdir(exist_ok=True)
@@ -360,7 +366,7 @@ Type 'help' for available commands.
         if results is None:
             return "# No Results\n\nNo trades were generated during the backtest period. Try adjusting parameters or date range."
         
-        trades_df, metrics = results
+        trades_df, metrics, _ = results  # Unpack all 3 values
         
         # Format results as markdown
         return self._format_backtest_results(

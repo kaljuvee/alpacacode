@@ -403,11 +403,18 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
                     logger.warning(f"Cannot place order for {symbol}: value ${position_value:.2f} exceeds buying power ${buying_power:.2f}")
                     continue
                 
+                # Calculate full shares (paper trading doesn't support fractional)
+                qty = int(position_value / current_price)
+                
+                if qty == 0:
+                    logger.warning(f"Cannot place order for {symbol}: position value ${position_value:.2f} too small for current price ${current_price:.2f}")
+                    continue
+                
                 # Place order
                 if not dry_run and client:
                     result = client.create_order(
                         symbol=symbol,
-                        notional=position_value,
+                        qty=qty,
                         side='buy',
                         type='market',
                         time_in_force='day'
@@ -418,22 +425,23 @@ def execute_buy_the_dip_strategy(client, symbols, capital_per_trade=1000, dip_th
                     else:
                         order_id = result.get('id')
                         order_status = result.get('status', 'unknown')
-                        logger.info(f"✅ Order placed: BUY ${position_value:.2f} of {symbol} @ market (Notional Order)")
+                        actual_value = qty * current_price
+                        logger.info(f"✅ Order placed: BUY {qty} shares of {symbol} @ market (~${actual_value:.2f})")
                         logger.info(f"   Order ID: {order_id}, Status: {order_status}")
                         
                         if order_id:
                             order_ids.append({
                                 'order_id': str(order_id),
                                 'symbol': symbol,
-                                'notional': position_value,
+                                'qty': qty,
                                 'status': str(order_status) if order_status else 'unknown',
                                 'timestamp': datetime.now(timezone.utc).isoformat()
                             })
-                            # Local tracking (approximate qty, will be updated on fill if needed)
+                            # Local tracking
                             save_tracked_position(symbol, {
                                 'entry_time': datetime.now(timezone.utc).isoformat(),
                                 'entry_price': current_price,
-                                'qty': position_value / current_price
+                                'qty': qty
                             })
                         
                         trades_executed += 1

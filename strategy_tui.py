@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """
-Strategy Simulator TUI - Main Entry Point
-Terminal UI for backtesting trading strategies
+Strategy Backtester CLI - Main Entry Point
+Simplified CLI for backtesting trading strategies
 """
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from tui.app import StrategySimulatorApp
+from tui.strategy_cli import StrategyCLI
+import asyncio
 
 
 def main():
-    """Main entry point for Strategy Simulator TUI."""
+    """Main entry point for Strategy Backtester CLI."""
     # Load environment variables
     env_path = Path(__file__).parent / ".env"
     if env_path.exists():
         load_dotenv(env_path)
     
-    # Create and run app
-    app = StrategySimulatorApp()
-    app.run()
+    # Create and run CLI
+    cli = StrategyCLI()
+    asyncio.run(cli.run())
 
 
 if __name__ == "__main__":

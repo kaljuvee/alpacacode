@@ -76,7 +76,7 @@ class BacktestAgent:
         symbols = request.get("symbols", DEFAULT_SYMBOLS)
         initial_capital = request.get("initial_capital", 10000.0)
         data_source = request.get("data_source", "massive")
-        variations = request.get("variations", DEFAULT_VARIATIONS.get(strategy, {}))
+        variations = request.get("variations") or DEFAULT_VARIATIONS.get(strategy, {})
 
         # Determine date range
         end_date = datetime.now()
@@ -193,7 +193,7 @@ class BacktestAgent:
                 f"  [{i + 1}/{len(grid)}] dip={dip}, tp={tp}, hold={hd}, sl={sl}, ps={ps}"
             )
             try:
-                trades_df, metrics, _ = backtest_buy_the_dip(
+                bt_result = backtest_buy_the_dip(
                     symbols=symbols,
                     start_date=start_date,
                     end_date=end_date,
@@ -205,6 +205,21 @@ class BacktestAgent:
                     stop_loss=sl,
                     data_source=data_source,
                 )
+
+                # backtest_buy_the_dip returns None when no price data available
+                if bt_result is None:
+                    logger.warning(f"  Variation {i}: no price data returned")
+                    results.append({
+                        "run_id": run_id,
+                        "variation_index": i,
+                        "params": {"dip_threshold": dip, "take_profit": tp,
+                                   "hold_days": hd, "stop_loss": sl, "position_size": ps},
+                        "error": "no_price_data",
+                        "sharpe_ratio": 0,
+                    })
+                    continue
+
+                trades_df, metrics, _ = bt_result
 
                 result = {
                     "run_id": run_id,

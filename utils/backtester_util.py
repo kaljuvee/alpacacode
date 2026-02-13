@@ -270,13 +270,15 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                         take_profit: float = 0.01, stop_loss: float = 0.005,
                         interval: str = '1d', data_source: str = 'massive',
                         include_taf_fees: bool = False, include_cat_fees: bool = False,
-                        pdt_protection: Optional[bool] = None) -> Tuple[pd.DataFrame, Dict, pd.DataFrame]:
+                        pdt_protection: Optional[bool] = None,
+                        extended_hours: bool = False,
+                        intraday_exit: bool = False) -> Tuple[pd.DataFrame, Dict, pd.DataFrame]:
     """
     Backtest buy-the-dip strategy (wrapper for backward compatibility)
-    
-    Strategy: Buy when stock drops by dip_threshold from recent high, 
+
+    Strategy: Buy when stock drops by dip_threshold from recent high,
               hold for hold_days or until take_profit/stop_loss hit
-    
+
     Args:
         symbols: List of stock symbols to trade
         start_date: Backtest start date
@@ -292,7 +294,9 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
         include_taf_fees: Include FINRA TAF fees
         include_cat_fees: Include Consolidated Audit Trail fees
         pdt_protection: If True, prevents same-day exits
-    
+        extended_hours: If True, allow trades during 4AM-8PM ET
+        intraday_exit: If True, use 5-min bars for precise TP/SL exit timing
+
     Returns:
         Tuple of (trades_df, metrics_dict)
     """
@@ -310,7 +314,9 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
         data_source=data_source,
         include_taf_fees=include_taf_fees,
         include_cat_fees=include_cat_fees,
-        pdt_protection=pdt_protection
+        pdt_protection=pdt_protection,
+        extended_hours=extended_hours,
+        intraday_exit=intraday_exit,
     )
 
 

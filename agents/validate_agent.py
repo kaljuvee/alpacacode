@@ -69,6 +69,7 @@ class ValidateAgent:
         self.max_iterations = max_iterations
         self.price_tolerance = price_tolerance
         self.massive = MassiveUtil()
+        self.extended_hours = False
 
     def run(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -90,6 +91,7 @@ class ValidateAgent:
         max_iter = request.get("max_iterations", self.max_iterations)
         tolerance = request.get("price_tolerance", self.price_tolerance)
         trades = request.get("trades")
+        self.extended_hours = request.get("extended_hours", False)
 
         logger.info(f"Validation agent starting for run {run_id} (source={source})")
 
@@ -277,16 +279,24 @@ class ValidateAgent:
             try:
                 dt = self._parse_datetime(time_val)
                 et = dt.astimezone(EASTERN)
-                hour = et.hour
+                hour_float = et.hour + et.minute / 60.0
 
-                if not (4 <= hour < 20):
-                    if not (hour == 20 and et.minute == 0):
-                        issues.append({
-                            "type": "market_hours",
-                            "field": field,
-                            "hour_et": hour,
-                            "message": f"{field} at {hour}:00 ET is outside 4AM-8PM window",
-                        })
+                if self.extended_hours:
+                    # Extended: 4:00 AM - 8:00 PM ET
+                    in_window = 4.0 <= hour_float < 20.0
+                    window_label = "4AM-8PM"
+                else:
+                    # Regular: 9:30 AM - 4:00 PM ET
+                    in_window = 9.5 <= hour_float < 16.0
+                    window_label = "9:30AM-4PM"
+
+                if not in_window:
+                    issues.append({
+                        "type": "market_hours",
+                        "field": field,
+                        "hour_et": et.hour,
+                        "message": f"{field} at {et.strftime('%H:%M')} ET is outside {window_label} window",
+                    })
             except Exception:
                 pass
 

@@ -59,6 +59,8 @@ class PaperTradeAgent:
         params = request.get("params", {})
         duration = request.get("duration_seconds", 604800)
         poll_interval = request.get("poll_interval_seconds", 300)
+        extended_hours = request.get("extended_hours", False)
+        email_notifications = request.get("email_notifications", True)
 
         # Strategy parameters with defaults
         dip_threshold = params.get("dip_threshold", 5.0)
@@ -94,7 +96,7 @@ class PaperTradeAgent:
                 now = datetime.now(timezone.utc)
 
                 # Check if market is open
-                if not is_market_open(now):
+                if not is_market_open(now, extended_hours=extended_hours):
                     logger.debug("Market closed, sleeping...")
                     time.sleep(min(poll_interval, 60))
                     continue
@@ -119,10 +121,12 @@ class PaperTradeAgent:
                             payload={"error": str(e), "session_id": self.session_id},
                         )
 
-                # Daily P&L report
+                # Daily P&L report + email
                 today = datetime.now(timezone.utc).date()
                 if today > last_daily_report:
                     self._record_daily_pnl()
+                    if email_notifications:
+                        self._send_daily_email(last_daily_report.isoformat())
                     last_daily_report = today
 
                 time.sleep(poll_interval)
@@ -346,6 +350,41 @@ class PaperTradeAgent:
                 })
         except Exception as e:
             logger.warning(f"Could not record daily P&L: {e}")
+
+    def _send_daily_email(self, date: str):
+        """Send daily P&L email report via Postmark."""
+        try:
+            from utils.email_util import send_daily_pnl_report
+
+            # Gather positions
+            positions = []
+            try:
+                pos_list = self.client.get_positions()
+                if isinstance(pos_list, list):
+                    positions = pos_list
+            except Exception:
+                pass
+
+            # Calculate daily P&L from today's sell trades
+            sell_trades = [t for t in self.trades if t.get("side") == "sell"]
+            today_trades = [t for t in self.trades
+                           if t.get("timestamp", "").startswith(date)]
+            daily_pnl = sum(t.get("pnl", 0) for t in sell_trades
+                           if t.get("timestamp", "").startswith(date))
+            cumulative_pnl = sum(t.get("pnl", 0) for t in sell_trades)
+            win_count = sum(1 for t in sell_trades if (t.get("pnl") or 0) > 0)
+            win_rate = (win_count / len(sell_trades) * 100) if sell_trades else 0.0
+
+            send_daily_pnl_report(
+                date=date,
+                pnl=daily_pnl,
+                positions=positions,
+                trades=today_trades,
+                cumulative_pnl=cumulative_pnl,
+                win_rate=win_rate,
+            )
+        except Exception as e:
+            logger.warning(f"Could not send daily email: {e}")
 
     def _generate_summary(self, start_time: datetime) -> Dict[str, Any]:
         """Generate session summary."""

@@ -4,6 +4,7 @@ Rich CLI interface for AlpacaCode.
 Interactive command loop with Rich formatting and built-in trades/runs views.
 """
 import asyncio
+import readline  # noqa: F401 — enables arrow keys, history in input()
 import threading
 from typing import Optional
 from rich.console import Console
@@ -185,7 +186,8 @@ help                                      Full reference
 
         while True:
             try:
-                user_input = self.console.input("[bold green]>[/bold green] ").strip()
+                self.console.print("[bold green]>[/bold green] ", end="")
+                user_input = input().strip()
 
                 if not user_input:
                     continue

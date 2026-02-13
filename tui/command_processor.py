@@ -597,100 +597,82 @@ class CommandProcessor:
     # ------------------------------------------------------------------
 
     def _show_help(self) -> str:
-        """Show help message."""
-        return """# AlpacaCode CLI - Help
+        """Show help as compact Rich tables."""
+        from rich.table import Table
+        from rich.columns import Columns
+        from rich.panel import Panel
+        from rich.text import Text
 
-## Quick Views
-```
-trades                 Show recent trades (Rich table from DB)
-runs                   Show recent runs (Rich table from DB)
-```
+        c = self.console
 
-## Agent Commands (Multi-Agent Framework)
+        c.print()
+        c.print("[bold cyan]AlpacaCode CLI — Help[/bold cyan]")
+        c.print()
 
-### Backtest
-```
-agent:backtest lookback:1m
-agent:backtest lookback:3m strategy:buy_the_dip symbols:AAPL,TSLA
-agent:backtest lookback:1m hours:extended
-agent:backtest lookback:1m intraday_exit:true
-agent:backtest lookback:1m pdt:false              Disable PDT rule (for >$25k accounts)
-```
+        # --- Column 1: Agent commands ---
+        col1 = Table(show_header=False, box=None, padding=(0, 1), expand=True)
+        col1.add_column(style="bold yellow", no_wrap=True)
+        col1.add_column(style="dim")
 
-### Validate
-```
-agent:validate run-id:<uuid>
-agent:validate run-id:<uuid> source:paper_trade
-```
+        col1.add_row("[bold white]Backtest[/bold white]", "")
+        col1.add_row("agent:backtest lookback:1m", "1-month backtest")
+        col1.add_row("  symbols:AAPL,TSLA", "custom symbols")
+        col1.add_row("  hours:extended", "pre/after-market")
+        col1.add_row("  intraday_exit:true", "5-min TP/SL bars")
+        col1.add_row("  pdt:false", "disable PDT rule")
+        col1.add_row("", "")
+        col1.add_row("[bold white]Validate[/bold white]", "")
+        col1.add_row("agent:validate run-id:<uuid>", "validate a run")
+        col1.add_row("  source:paper_trade", "validate paper trades")
+        col1.add_row("", "")
+        col1.add_row("[bold white]Reconcile[/bold white]", "")
+        col1.add_row("agent:reconcile", "DB vs Alpaca (7d)")
+        col1.add_row("  window:14d", "custom window")
 
-### Paper Trade (runs in background)
-```
-agent:paper duration:7d
-agent:paper duration:1h strategy:buy_the_dip symbols:AAPL,MSFT poll:60
-agent:paper duration:7d hours:extended
-agent:paper duration:7d email:false
-```
+        # --- Column 2: Paper / Full / Query ---
+        col2 = Table(show_header=False, box=None, padding=(0, 1), expand=True)
+        col2.add_column(style="bold yellow", no_wrap=True)
+        col2.add_column(style="dim")
 
-### Full Cycle (Backtest -> Validate -> Paper -> Validate)
-```
-agent:full lookback:1m duration:1m
-agent:full lookback:3m duration:7d strategy:buy_the_dip
-agent:full lookback:1m duration:7d hours:extended
-```
+        col2.add_row("[bold white]Paper Trade[/bold white]", "")
+        col2.add_row("agent:paper duration:7d", "run in background")
+        col2.add_row("  symbols:AAPL,MSFT poll:60", "custom config")
+        col2.add_row("  hours:extended", "extended hours")
+        col2.add_row("  email:false", "disable email reports")
+        col2.add_row("  pdt:false", "disable PDT rule")
+        col2.add_row("", "")
+        col2.add_row("[bold white]Full Cycle[/bold white]", "BT > Val > PT > Val")
+        col2.add_row("agent:full lookback:1m duration:1m", "")
+        col2.add_row("  hours:extended", "extended hours")
+        col2.add_row("", "")
+        col2.add_row("[bold white]Query & Monitor[/bold white]", "")
+        col2.add_row("trades / runs", "DB tables")
+        col2.add_row("agent:status", "agent states")
 
-### Reconcile (compare DB vs Alpaca)
-```
-agent:reconcile                    Reconcile positions/trades (default 7d window)
-agent:reconcile window:14d         Custom window
-```
+        # --- Column 3: Options & params ---
+        col3 = Table(show_header=False, box=None, padding=(0, 1), expand=True)
+        col3.add_column(style="bold yellow", no_wrap=True)
+        col3.add_column(style="dim")
 
-### Query & Monitor
-```
-agent:status           Show agent states and current run
-agent:runs             List recent runs from DB
-agent:trades           Show recent trades
-agent:trades type:backtest limit:50
-agent:trades run-id:<uuid>
-agent:stop             Stop background paper trading
-```
+        col3.add_row("[bold white]Options[/bold white]", "")
+        col3.add_row("hours:regular", "9:30AM-4PM ET (default)")
+        col3.add_row("hours:extended", "4AM-8PM ET")
+        col3.add_row("intraday_exit:true", "5-min bar exits")
+        col3.add_row("pdt:false", "disable PDT (>$25k)")
+        col3.add_row("email:false", "no daily P&L emails")
+        col3.add_row("", "")
+        col3.add_row("[bold white]Parameters[/bold white]", "")
+        col3.add_row("lookback:1m|3m|6m|1y", "backtest period")
+        col3.add_row("strategy:buy_the_dip", "strategy name")
+        col3.add_row("symbols:AAPL,TSLA", "comma-separated")
+        col3.add_row("capital:10000", "initial capital")
+        col3.add_row("", "")
+        col3.add_row("[bold white]General[/bold white]", "")
+        col3.add_row("help / status / q", "")
 
-## Extended Hours
-- `hours:regular` (default) — 9:30 AM - 4:00 PM ET
-- `hours:extended` — 4:00 AM - 8:00 PM ET (pre-market + after-hours)
-
-## Intraday Exits
-- `intraday_exit:true` — Check TP/SL within the trading day using intraday bars
-- Default is daily bar exits only
-
-## PDT Rule (Pattern Day Trader)
-- Default: ON (blocks 4th day trade in rolling 5-business-day window)
-- `pdt:false` to disable (for accounts > $25k)
-
-## Email Notifications
-- Paper trading sends daily P&L reports via Postmark (default: on)
-- `email:false` to disable
-
-## Legacy Backtest Commands
-
-```
-alpaca:backtest strategy:buy-the-dip lookback:1m
-alpaca:backtest strategy:momentum lookback:3m symbols:AAPL,TSLA
-alpaca:backtest strategy:buy-the-dip lookback:6m capital:50000 dip:3.0
-```
-
-### Parameters
-- `strategy:<name>` - buy-the-dip, momentum
-- `lookback:<period>` - 1m, 2m, 3m, 6m, 1y
-- `symbols:<TICKER,...>` - Comma-separated (default: Mag 7)
-- `capital:<amount>` - Initial capital (default: 10000)
-- `dip:<pct>` / `takeprofit:<pct>` / `stoploss:<pct>` / `hold:<days>`
-
-## Other Commands
-- `help` - Show this help
-- `status` - Show configuration
-- `clear` - Clear results
-- `q` / `exit` - Quit
-"""
+        c.print(Columns([col1, col2, col3], equal=True, expand=True))
+        c.print()
+        return ""
 
     def _show_status(self) -> str:
         """Show current status and configuration."""

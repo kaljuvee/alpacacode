@@ -440,38 +440,49 @@ class CommandProcessor:
 
     def _agent_status(self) -> str:
         """Show current agent states."""
-        md = "# Agent Status\n\n"
-
-        # Background task status
-        if self.app._bg_task and not self.app._bg_task.done():
-            md += "**Background paper trading**: RUNNING\n\n"
-        elif self.app._bg_task and self.app._bg_task.done():
-            md += "**Background paper trading**: COMPLETED\n\n"
-
-        # Orchestrator state
         orch = self.app._orch
         if orch is None:
-            md += "No orchestrator session active. Run an `agent:*` command first.\n"
-            return md
+            return "# Agent Status\n\nNo session active. Run an `agent:*` command first.\n"
 
+        # Use instance mode (not persisted state which may be stale)
+        mode = getattr(orch, '_mode', None) or orch.state.mode or 'n/a'
+        bg_running = self.app._bg_task and not self.app._bg_task.done()
+        bg_done = self.app._bg_task and self.app._bg_task.done()
+
+        # Header with status
+        if bg_running:
+            status_label = "RUNNING"
+        elif bg_done:
+            status_label = "COMPLETED"
+        else:
+            status_label = "IDLE"
+
+        md = f"# {mode.replace('_', ' ').title()} — {status_label}\n\n"
         md += f"- **Run ID**: `{orch.run_id}`\n"
-        md += f"- **Mode**: {orch.state.mode or 'n/a'}\n"
-        md += f"- **Started**: {orch.state.started_at or 'n/a'}\n\n"
 
-        md += "## Agents\n\n"
+        # Show started time, format nicely
+        started = orch.state.started_at or 'n/a'
+        if started != 'n/a' and len(started) > 19:
+            started = started[:19].replace('T', ' ')
+        md += f"- **Started**: {started}\n\n"
+
+        # Agents table — only show agents relevant to the mode
         md += "| Agent | Status | Task |\n|-------|--------|------|\n"
         for name, agent in orch.state.agents.items():
             md += f"| {name} | {agent.status} | {agent.current_task or '-'} |\n"
 
-        if orch.state.best_config:
+        # Best config (only for modes that involve backtesting)
+        if orch.state.best_config and mode in ('backtest', 'full'):
             best = orch.state.best_config
             md += (
                 f"\n## Best Config\n"
                 f"- Sharpe: {best.get('sharpe_ratio', 0):.2f}\n"
                 f"- Return: {best.get('total_return', 0):.1f}%\n"
+                f"- Annualized: {best.get('annualized_return', 0):.1f}%\n"
             )
 
-        if orch.state.validation_results:
+        # Last validation (only if we ran validation)
+        if orch.state.validation_results and mode in ('validate', 'full'):
             last = orch.state.validation_results[-1]
             md += (
                 f"\n## Last Validation\n"

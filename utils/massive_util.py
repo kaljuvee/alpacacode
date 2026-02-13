@@ -267,54 +267,63 @@ class MassiveUtil:
             logger.error(f"Error getting yfinance ticker info for {symbol}: {e}")
             return None
     
-    def is_market_open(self, date: datetime) -> bool:
+    def is_market_open(self, date: datetime, extended_hours: bool = False) -> bool:
         """
-        Check if market is open on given date
-        
+        Check if market is open on given date.
+
         Args:
             date: Date to check
-        
+            extended_hours: If True, use 4:00 AM - 8:00 PM ET window.
+                            If False (default), use 9:30 AM - 4:00 PM ET.
+
         Returns:
             True if market is open, False otherwise
         """
         if self.use_massive:
-            return self._check_massive_market_status(date)
+            return self._check_massive_market_status(date, extended_hours)
         else:
-            return self._check_yfinance_market_status(date)
-    
-    def _check_massive_market_status(self, date: datetime) -> bool:
+            return self._check_yfinance_market_status(date, extended_hours)
+
+    def _check_massive_market_status(self, date: datetime, extended_hours: bool = False) -> bool:
         """Check market status using Massive API"""
         try:
-            # Convert to US/Eastern
             eastern = pytz.timezone('US/Eastern')
             if date.tzinfo is not None:
                 date_et = date.astimezone(eastern)
             else:
                 date_et = pytz.utc.localize(date).astimezone(eastern)
-            
-            hour = date_et.hour
-            if date_et.weekday() < 5:  # Weekday
-                return 4 <= hour < 20
-            
-            return False
-            
+
+            if date_et.weekday() >= 5:
+                return False
+
+            hour_float = date_et.hour + date_et.minute / 60.0
+            if extended_hours:
+                return 4.0 <= hour_float < 20.0
+            else:
+                return 9.5 <= hour_float < 16.0
+
         except Exception as e:
             logger.error(f"Error checking Massive market status: {e}")
             return False
-    
-    def _check_yfinance_market_status(self, date: datetime) -> bool:
+
+    def _check_yfinance_market_status(self, date: datetime, extended_hours: bool = False) -> bool:
         """Check market status using yfinance"""
         try:
-            # Convert to US/Eastern
             eastern = pytz.timezone('US/Eastern')
             if date.tzinfo is not None:
                 date_et = date.astimezone(eastern)
             else:
                 date_et = pytz.utc.localize(date).astimezone(eastern)
-                
-            hour = date_et.hour
-            return date_et.weekday() < 5 and 4 <= hour < 20
-            
+
+            if date_et.weekday() >= 5:
+                return False
+
+            hour_float = date_et.hour + date_et.minute / 60.0
+            if extended_hours:
+                return 4.0 <= hour_float < 20.0
+            else:
+                return 9.5 <= hour_float < 16.0
+
         except Exception as e:
             logger.error(f"Error checking yfinance market status: {e}")
             return False
@@ -331,9 +340,9 @@ def get_ticker_info(symbol: str) -> Optional[Dict[str, Any]]:
     """Get ticker information with automatic fallback"""
     return massive_util.get_ticker_info(symbol)
 
-def is_market_open(date: datetime) -> bool:
+def is_market_open(date: datetime, extended_hours: bool = False) -> bool:
     """Check if market is open with automatic fallback"""
-    return massive_util.is_market_open(date)
+    return massive_util.is_market_open(date, extended_hours=extended_hours)
 
 def get_historical_data(symbol: str, start_date: datetime, end_date: datetime, timeframe: str = 'day', interval: int = 1) -> pd.DataFrame:
     """Get historical price data with automatic fallback"""

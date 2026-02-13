@@ -113,13 +113,64 @@ def calculate_cat_fee(shares: int) -> float:
     return fee
 
 
+def _check_intraday_exit(symbol: str, trade: Dict, current_date,
+                         intraday_data: Dict[str, pd.DataFrame],
+                         pdt_active: bool) -> Optional[Dict]:
+    """
+    Check intraday bars for TP/SL exit within a single day.
+
+    Returns dict with exit_price, exit_time, hit_tp, hit_sl if triggered,
+    or None if neither TP nor SL was hit intraday.
+    """
+    if symbol not in intraday_data:
+        return None
+
+    idf = intraday_data[symbol]
+    if idf.empty:
+        return None
+
+    # Filter to bars on this calendar day
+    day_date = current_date.date() if hasattr(current_date, 'date') else current_date
+    day_bars = idf[idf.index.date == day_date]
+    if day_bars.empty:
+        return None
+
+    # PDT check
+    if pdt_active and day_date == trade['entry_date_raw']:
+        return None
+
+    for bar_time, bar in day_bars.iterrows():
+        bar_low = float(bar['Low'])
+        bar_high = float(bar['High'])
+
+        # Check SL first (more conservative — assume adverse move happens first)
+        if bar_low <= trade['stop_price']:
+            return {
+                'exit_price': trade['stop_price'],
+                'exit_time': bar_time,
+                'hit_tp': False,
+                'hit_sl': True,
+            }
+        if bar_high >= trade['target_price']:
+            return {
+                'exit_price': trade['target_price'],
+                'exit_time': bar_time,
+                'hit_tp': True,
+                'hit_sl': False,
+            }
+
+    return None
+
+
 def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: datetime,
                         initial_capital: float = 10000, position_size: float = 0.1,
                         dip_threshold: float = 0.02, hold_days: int = 2,
                         take_profit: float = 0.01, stop_loss: float = 0.005,
                         interval: str = '1d', data_source: str = 'massive',
                         include_taf_fees: bool = False, include_cat_fees: bool = False,
-                        pdt_protection: Optional[bool] = None) -> Tuple[pd.DataFrame, Dict]:
+                        pdt_protection: Optional[bool] = None,
+                        extended_hours: bool = False,
+                        intraday_exit: bool = False) -> Tuple[pd.DataFrame, Dict]:
     """
     Backtest buy-the-dip strategy
     
@@ -141,7 +192,10 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
         include_taf_fees: Include FINRA TAF fees
         include_cat_fees: Include Consolidated Audit Trail fees
         pdt_protection: If True, prevents same-day exits. Defaults to True if initial_capital < $25k.
-    
+        extended_hours: If True, allow trades during 4AM-8PM ET (pre-market + after-hours).
+        intraday_exit: If True, use 5-min intraday bars to determine exact TP/SL exit
+                       within the day (determines which hits first). No same-day re-entry.
+
     Returns:
         Tuple of (trades_df, metrics_dict, equity_df)
     """
@@ -197,10 +251,28 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
     
     if not price_data:
         return None
-    
+
+    # Pre-fetch intraday data for exit precision when intraday_exit is enabled
+    intraday_data = {}
+    if intraday_exit and interval == '1d':
+        data_start_intra = start_date - timedelta(days=5)
+        for symbol in symbols:
+            try:
+                idf = massive_util.get_historical_data(
+                    symbol, data_start_intra, end_date,
+                    timeframe='minute', interval=5,
+                )
+                if not idf.empty:
+                    if idf.index.tz is None:
+                        idf.index = idf.index.tz_localize('UTC')
+                    intraday_data[symbol] = idf
+            except Exception:
+                pass
+
     trades = []
     available_capital = initial_capital
     active_trades = {} # ticker: trade_info
+    exited_today = set()  # symbols exited today (no same-day re-entry)
     
     # Standardize timezones
     is_aware = False
@@ -229,7 +301,8 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
     sorted_timestamps = sorted([t for t in all_timestamps if start_date <= t <= end_date])
     
     equity_curve = []
-    
+    prev_date = None
+
     for current_date in sorted_timestamps:
         # Adjust time for daily data reporting
         display_time = current_date
@@ -240,14 +313,19 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
             else:
                 display_time = display_time.astimezone(eastern)
             display_time = display_time.replace(hour=9, minute=30)
-        
+
+        # Reset daily exit tracking on date change
+        if prev_date is None or current_date.date() != prev_date.date():
+            exited_today = set()
+        prev_date = current_date
+
         # 1. PROCESS EXITS FIRST (Chronological order)
         closed_this_tick = []
         for symbol, trade in active_trades.items():
             df = price_data[symbol]
             current_bar = df.loc[current_date]
-            
-            # Use same reporting shift for exit time
+
+            # Default exit display time
             exit_display_time = current_date
             if interval == '1d':
                 eastern = pytz.timezone('US/Eastern')
@@ -257,75 +335,96 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                     exit_display_time = exit_display_time.astimezone(eastern)
                 exit_display_time = exit_display_time.replace(hour=16, minute=0)
 
-            # PDT Check: Cannot exit on same calendar day as entry if PDT active
-            # Note: current_date and trade['entry_date_raw'] are in UTC/data timezone
+            # PDT Check
             is_same_day = current_date.date() == trade['entry_date_raw']
             can_day_trade = not (pdt_active and is_same_day)
 
-            hit_tp = can_day_trade and float(current_bar['High']) >= trade['target_price']
-            hit_sl = can_day_trade and float(current_bar['Low']) <= trade['stop_price']
-            hit_end = current_date >= trade['max_exit_time']
-            
-            if hit_tp or hit_sl or hit_end:
+            # Try intraday exit first for precise TP/SL ordering
+            intraday_result = None
+            if intraday_exit and can_day_trade and intraday_data:
+                intraday_result = _check_intraday_exit(
+                    symbol, trade, current_date, intraday_data, pdt_active
+                )
+
+            if intraday_result:
+                hit_tp = intraday_result['hit_tp']
+                hit_sl = intraday_result['hit_sl']
+                exit_price = intraday_result['exit_price']
+                exit_display_time = intraday_result['exit_time']
+                if hasattr(exit_display_time, 'astimezone'):
+                    exit_display_time = exit_display_time.astimezone(pytz.timezone('US/Eastern'))
+            else:
+                hit_tp = can_day_trade and float(current_bar['High']) >= trade['target_price']
+                hit_sl = can_day_trade and float(current_bar['Low']) <= trade['stop_price']
+                hit_end = current_date >= trade['max_exit_time']
+
+                if not (hit_tp or hit_sl or hit_end):
+                    continue
+
                 exit_price = trade['target_price'] if hit_tp else trade['stop_price'] if hit_sl else float(current_bar['Close'])
-                
-                # Calculate P&L and fees
-                pnl = (exit_price - trade['entry_price']) * trade['shares']
-                
-                taf_fee = calculate_finra_taf_fee(trade['shares']) if include_taf_fees else 0.0
-                cat_fee_buy = calculate_cat_fee(trade['shares']) if include_cat_fees else 0.0
-                cat_fee_sell = calculate_cat_fee(trade['shares']) if include_cat_fees else 0.0
-                total_fees = taf_fee + cat_fee_buy + cat_fee_sell
-                
-                pnl -= total_fees
-                available_capital += (trade['entry_price'] * trade['shares']) + pnl
-                pnl_pct = ((exit_price - trade['entry_price']) / trade['entry_price']) * 100
-                
-                # Calculate total equity (Cash + Market Value of REMAINING positions)
-                total_market_value = 0
-                for open_symbol, open_trade in active_trades.items():
-                    if open_symbol == symbol: continue # This one just closed
-                    try:
-                        cur_p = float(price_data[open_symbol].loc[current_date, 'Close'])
-                    except KeyError:
-                        cur_p = float(price_data[open_symbol][:current_date]['Close'].iloc[-1])
-                    total_market_value += open_trade['shares'] * cur_p
-                
-                total_equity = available_capital + total_market_value
-                
-                trades.append({
-                    'entry_time': trade['entry_time'],
-                    'exit_time': exit_display_time,
-                    'ticker': symbol,
-                    'direction': 'long',
-                    'shares': trade['shares'],
-                    'entry_price': trade['entry_price'],
-                    'exit_price': exit_price,
-                    'target_price': trade['target_price'],
-                    'stop_price': trade['stop_price'],
-                    'hit_target': hit_tp,
-                    'hit_stop': hit_sl and not hit_tp,
-                    'TP': 1 if hit_tp else 0,
-                    'SL': 1 if hit_sl and not hit_tp else 0,
-                    'pnl': pnl,
-                    'pnl_pct': pnl_pct,
-                    'capital_after': total_equity,
-                    'dip_pct': trade['dip_pct'] * 100,
-                    'taf_fee': taf_fee,
-                    'cat_fee': cat_fee_buy + cat_fee_sell,
-                    'total_fees': total_fees
-                })
-                closed_this_tick.append(symbol)
-        
+
+            # Record the closed trade
+            pnl = (exit_price - trade['entry_price']) * trade['shares']
+
+            taf_fee = calculate_finra_taf_fee(trade['shares']) if include_taf_fees else 0.0
+            cat_fee_buy = calculate_cat_fee(trade['shares']) if include_cat_fees else 0.0
+            cat_fee_sell = calculate_cat_fee(trade['shares']) if include_cat_fees else 0.0
+            total_fees = taf_fee + cat_fee_buy + cat_fee_sell
+
+            pnl -= total_fees
+            available_capital += (trade['entry_price'] * trade['shares']) + pnl
+            pnl_pct = ((exit_price - trade['entry_price']) / trade['entry_price']) * 100
+
+            # Calculate total equity (Cash + Market Value of REMAINING positions)
+            total_market_value = 0
+            for open_symbol, open_trade in active_trades.items():
+                if open_symbol == symbol:
+                    continue
+                try:
+                    cur_p = float(price_data[open_symbol].loc[current_date, 'Close'])
+                except KeyError:
+                    cur_p = float(price_data[open_symbol][:current_date]['Close'].iloc[-1])
+                total_market_value += open_trade['shares'] * cur_p
+
+            total_equity = available_capital + total_market_value
+
+            trades.append({
+                'entry_time': trade['entry_time'],
+                'exit_time': exit_display_time,
+                'ticker': symbol,
+                'direction': 'long',
+                'shares': trade['shares'],
+                'entry_price': trade['entry_price'],
+                'exit_price': exit_price,
+                'target_price': trade['target_price'],
+                'stop_price': trade['stop_price'],
+                'hit_target': hit_tp,
+                'hit_stop': hit_sl and not hit_tp,
+                'TP': 1 if hit_tp else 0,
+                'SL': 1 if hit_sl and not hit_tp else 0,
+                'pnl': pnl,
+                'pnl_pct': pnl_pct,
+                'capital_after': total_equity,
+                'dip_pct': trade['dip_pct'] * 100,
+                'taf_fee': taf_fee,
+                'cat_fee': cat_fee_buy + cat_fee_sell,
+                'total_fees': total_fees
+            })
+            closed_this_tick.append(symbol)
+            exited_today.add(symbol)
+
         for symbol in closed_this_tick:
             del active_trades[symbol]
 
         # 2. PROCESS ENTRIES
-        if not is_market_open(display_time):
+        if not is_market_open(display_time, extended_hours=extended_hours):
             continue
 
         for symbol in symbols:
             if symbol not in price_data or symbol in active_trades:
+                continue
+            # No same-day re-entry when using intraday exits
+            if intraday_exit and symbol in exited_today:
                 continue
             
             df = price_data[symbol]

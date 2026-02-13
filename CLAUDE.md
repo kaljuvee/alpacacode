@@ -75,15 +75,37 @@ Four agents collaborate to backtest, paper trade, and validate strategies:
 ### Running
 
 ```bash
-# Full cycle: backtest -> validate -> paper trade -> validate
+# Rich CLI (primary interface)
+python alpaca_code.py
+
+# CLI commands:
+#   trades                                    Show trades from DB
+#   runs                                      Show runs from DB
+#   agent:backtest lookback:1m                Run parameterized backtest
+#   agent:backtest lookback:1m hours:extended Extended hours backtest
+#   agent:backtest lookback:1m intraday_exit:true  Intraday TP/SL exits
+#   agent:paper duration:7d                   Paper trade in background
+#   agent:paper duration:7d hours:extended    Extended hours paper trading
+#   agent:full lookback:1m duration:1m        Full cycle
+
+# Orchestrator (direct invocation)
 python agents/orchestrator.py --mode full
-
-# Backtest only
 python agents/orchestrator.py --mode backtest
-
-# Validate a specific run
 python agents/orchestrator.py --mode validate --run-id <uuid>
-
-# Paper trade only (short test)
 python agents/orchestrator.py --mode paper --duration 1h
 ```
+
+### Extended Hours
+- `hours:regular` (default) — 9:30 AM - 4:00 PM ET
+- `hours:extended` — 4:00 AM - 8:00 PM ET (pre-market + after-hours)
+- Flows through: CLI → Orchestrator → Agent → Strategy util / Validator
+
+### Intraday Exits
+- `intraday_exit:true` — Use 5-min intraday bars for precise TP/SL exit timing
+- Determines which of TP/SL is hit first within each day
+- No same-day re-entry after exit
+
+### Email Notifications
+- Paper trading sends daily P&L reports via Postmark
+- Requires: `POSTMARK_API_KEY`, `TO_EMAIL`, `FROM_EMAIL` in `.env`
+- Disable with `email:false` on `agent:paper` command

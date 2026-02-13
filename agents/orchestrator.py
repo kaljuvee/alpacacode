@@ -100,6 +100,8 @@ class Orchestrator:
             "data_source": config.get("data_source", "massive"),
             "variations": config.get("variations"),
             "run_id": self.run_id,
+            "extended_hours": config.get("extended_hours", False),
+            "intraday_exit": config.get("intraday_exit", False),
         }
 
         # Publish request to bus
@@ -150,10 +152,16 @@ class Orchestrator:
         logger.info(f"PHASE: VALIDATION (source={source})")
         logger.info("=" * 60)
 
+        # Pass extended_hours from stored config if available
+        ext_hours = False
+        if self._config:
+            ext_hours = self._config.get("extended_hours", False)
+
         request = {
             "run_id": run_id or self.run_id,
             "source": source,
             "trades": trades,
+            "extended_hours": ext_hours,
         }
 
         self.bus.publish(
@@ -227,6 +235,8 @@ class Orchestrator:
             },
             "duration_seconds": config.get("duration_seconds", 604800),
             "poll_interval_seconds": config.get("poll_interval_seconds", 300),
+            "extended_hours": config.get("extended_hours", False),
+            "email_notifications": config.get("email_notifications", True),
         }
 
         self.bus.publish(

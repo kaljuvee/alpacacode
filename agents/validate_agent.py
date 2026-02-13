@@ -22,6 +22,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from utils.massive_util import MassiveUtil
+from utils.agent_storage import fetch_backtest_trades, fetch_paper_trades
 
 logger = logging.getLogger(__name__)
 
@@ -156,23 +157,12 @@ class ValidateAgent:
         return result.to_dict()
 
     def _fetch_trades(self, run_id: str, source: str) -> List[Dict]:
-        """Fetch trades from DB."""
+        """Fetch trades using the configured backend (file or DB)."""
         try:
             if source == "backtest":
-                from utils.backtest_db_util import get_individual_trades
-                return get_individual_trades(run_id)
+                return fetch_backtest_trades(run_id)
             else:
-                from utils.db.db_pool import DatabasePool
-                from sqlalchemy import text
-
-                pool = DatabasePool()
-                with pool.get_session() as session:
-                    result = session.execute(
-                        text("SELECT * FROM trades WHERE run_id = :run_id ORDER BY timestamp"),
-                        {"run_id": run_id},
-                    )
-                    columns = result.keys()
-                    return [dict(zip(columns, row)) for row in result.fetchall()]
+                return fetch_paper_trades(run_id)
         except Exception as e:
             logger.error(f"Failed to fetch trades: {e}")
             return []

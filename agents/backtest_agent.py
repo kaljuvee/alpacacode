@@ -24,6 +24,7 @@ from utils.backtester_util import (
     backtest_momentum_strategy,
     backtest_vix_strategy,
 )
+from utils.agent_storage import store_backtest_results
 
 logger = logging.getLogger(__name__)
 
@@ -132,11 +133,14 @@ class BacktestAgent:
         # Store results to DB if available
         self._store_results(run_id, best, results)
 
+        best_trades = best.get("trades", [])
+
         output = {
             "run_id": run_id,
             "strategy": strategy,
             "total_variations": len(results),
             "best_config": best,
+            "trades": best_trades,
             "all_results_summary": [
                 {
                     "params": r.get("params"),
@@ -221,6 +225,11 @@ class BacktestAgent:
 
                 trades_df, metrics, _ = bt_result
 
+                # Convert trades DataFrame to list of dicts for storage
+                trades_list = []
+                if trades_df is not None and not trades_df.empty:
+                    trades_list = trades_df.to_dict(orient="records")
+
                 result = {
                     "run_id": run_id,
                     "variation_index": i,
@@ -240,6 +249,7 @@ class BacktestAgent:
                     "max_drawdown": metrics.get("max_drawdown", 0),
                     "annualized_return": metrics.get("annualized_return", 0),
                     "trades_count": len(trades_df) if trades_df is not None else 0,
+                    "trades": trades_list,
                 }
                 results.append(result)
 
@@ -305,32 +315,9 @@ class BacktestAgent:
             return [{"run_id": run_id, "error": str(e), "sharpe_ratio": 0}]
 
     def _store_results(self, run_id: str, best: Dict, all_results: List[Dict]):
-        """Store backtest results to DB if available."""
+        """Store backtest results using the configured backend (file or DB)."""
         try:
-            from utils.backtest_db_util import BacktestDatabaseUtil
-
-            db = BacktestDatabaseUtil()
-            params = best.get("params", {})
-            db.store_backtest_summary({
-                "run_id": run_id,
-                "model_name": "backtest_agent",
-                "start_date": str(datetime.now().date() - timedelta(days=90)),
-                "end_date": str(datetime.now().date()),
-                "initial_capital": 10000,
-                "final_capital": 10000 + best.get("total_pnl", 0),
-                "total_pnl": best.get("total_pnl", 0),
-                "return_percent": best.get("total_return", 0),
-                "total_trades": best.get("total_trades", 0),
-                "winning_trades": 0,
-                "losing_trades": 0,
-                "win_rate_percent": best.get("win_rate", 0),
-                "max_drawdown": best.get("max_drawdown", 0),
-                "sharpe_ratio": best.get("sharpe_ratio", 0),
-                "annualized_return": best.get("annualized_return", 0),
-                "agent": "backtest_agent",
-                "notes": f"Grid search: {len(all_results)} variations. "
-                         f"Best params: {params}",
-            })
-            logger.info(f"Results stored to DB for run {run_id}")
+            best_trades = best.get("trades", [])
+            store_backtest_results(run_id, best, all_results, best_trades)
         except Exception as e:
-            logger.warning(f"Could not store results to DB: {e}")
+            logger.warning(f"Could not store results: {e}")

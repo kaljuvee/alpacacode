@@ -31,6 +31,7 @@ from agents.shared.state import PortfolioState
 from agents.backtest_agent import BacktestAgent
 from agents.paper_trade_agent import PaperTradeAgent
 from agents.validate_agent import ValidateAgent
+from agents.reconcile_agent import ReconcileAgent
 from utils.agent_storage import store_run, update_run, store_validation
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,10 @@ class Orchestrator:
         self.backtester = BacktestAgent(message_bus=self.bus, state=self.state)
         self.paper_trader = PaperTradeAgent(message_bus=self.bus, state=self.state)
         self.validator = ValidateAgent(message_bus=self.bus, state=self.state)
+        self.reconciler = ReconcileAgent(message_bus=self.bus, state=self.state)
 
         # Initialize agent states
-        for name in ["backtester", "paper_trader", "validator"]:
+        for name in ["backtester", "paper_trader", "validator", "reconciler"]:
             self.state.get_agent(name).set_idle()
 
         self._mode = None  # set by run_* methods
@@ -102,6 +104,7 @@ class Orchestrator:
             "run_id": self.run_id,
             "extended_hours": config.get("extended_hours", False),
             "intraday_exit": config.get("intraday_exit", False),
+            "pdt_protection": config.get("pdt_protection"),
         }
 
         # Publish request to bus
@@ -237,6 +240,7 @@ class Orchestrator:
             "poll_interval_seconds": config.get("poll_interval_seconds", 300),
             "extended_hours": config.get("extended_hours", False),
             "email_notifications": config.get("email_notifications", True),
+            "pdt_protection": config.get("pdt_protection"),
         }
 
         self.bus.publish(
@@ -329,6 +333,54 @@ class Orchestrator:
 
         return results
 
+    def run_reconciliation(self, config: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Run reconciliation against Alpaca actual holdings."""
+        config = config or {}
+        if self._mode is None:
+            self._mode = "reconcile"
+            store_run(self.run_id, "reconcile", config=config)
+        agent_state = self.state.get_agent("reconciler")
+        agent_state.set_running("reconciliation")
+        self.state.mode = "reconcile"
+        self.state.save()
+
+        logger.info("=" * 60)
+        logger.info("PHASE: RECONCILIATION")
+        logger.info("=" * 60)
+
+        request = {
+            "run_id": self.run_id,
+            "window_days": config.get("window_days", 7),
+        }
+
+        self.bus.publish(
+            from_agent="portfolio_manager",
+            to_agent="reconciler",
+            msg_type="reconciliation_request",
+            payload=request,
+        )
+
+        try:
+            result = self.reconciler.run(request)
+            agent_state.set_completed()
+            self.state.save()
+            if self._mode == "reconcile":
+                update_run(self.run_id,
+                           status=result.get("status", "completed"),
+                           results=result)
+
+            total = result.get("total_issues", 0)
+            logger.info(f"Reconciliation complete: {total} issues found")
+            return result
+
+        except Exception as e:
+            agent_state.set_error(str(e))
+            self.state.save()
+            if self._mode == "reconcile":
+                update_run(self.run_id, "failed", results={"error": str(e)})
+            logger.error(f"Reconciliation failed: {e}")
+            return {"error": str(e)}
+
     def _save_final(self, results: Dict):
         """Save final results and state."""
         self.state.completed_at = datetime.now(timezone.utc).isoformat()
@@ -371,12 +423,13 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["backtest", "validate", "paper", "full", "status"],
+        choices=["backtest", "validate", "paper", "full", "reconcile", "status"],
         default="full",
         help="Execution mode",
     )
     parser.add_argument("--run-id", help="Run ID for validation mode")
     parser.add_argument("--duration", default="7d", help="Paper trading duration (e.g. 1h, 7d)")
+    parser.add_argument("--window", type=int, default=7, help="Reconciliation window in days")
     parser.add_argument("--strategy", default="buy_the_dip", help="Strategy name")
     parser.add_argument(
         "--symbols",
@@ -425,6 +478,8 @@ def main():
         result = orch.run_paper_trade(config)
     elif args.mode == "full":
         result = orch.run_full(config)
+    elif args.mode == "reconcile":
+        result = orch.run_reconciliation({"window_days": args.window})
     else:
         parser.print_help()
         return

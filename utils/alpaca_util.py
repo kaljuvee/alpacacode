@@ -27,6 +27,7 @@ from alpaca.trading.requests import (
     StopOrderRequest,
     StopLimitOrderRequest,
     TrailingStopOrderRequest,
+    GetOrdersRequest,
 )
 from alpaca.trading.enums import (
     OrderSide, 
@@ -143,22 +144,43 @@ class AlpacaAPI:
             logger.error(f"API request failed: {e}")
             return {"error": str(e)}
 
-    def get_orders(self, **kwargs):
+    def get_orders(self, status: Optional[str] = None,
+                   after: Optional[str] = None,
+                   until: Optional[str] = None,
+                   limit: Optional[int] = None,
+                   **kwargs):
+        """
+        Get orders with optional filters.
+
+        Args:
+            status: 'open', 'closed', or 'all'
+            after: ISO datetime string — only return orders after this time
+            until: ISO datetime string — only return orders before this time
+            limit: Max number of orders to return
+        """
         try:
-            # Handle status parameter by converting to proper enum
-            if 'status' in kwargs:
-                from alpaca.trading.enums import QueryOrderStatus
-                status = kwargs.pop('status')
+            req_kwargs = {}
+
+            if status:
                 if status == 'open':
-                    kwargs['status'] = QueryOrderStatus.OPEN
+                    req_kwargs['status'] = QueryOrderStatus.OPEN
                 elif status == 'closed':
-                    kwargs['status'] = QueryOrderStatus.CLOSED
-                elif status == 'all':
-                    # For 'all', don't pass status parameter
-                    pass
-            
-            # Get orders without unsupported parameters
-            orders = self.trading_client.get_orders()
+                    req_kwargs['status'] = QueryOrderStatus.CLOSED
+                # 'all' — omit status to get all
+
+            if after:
+                req_kwargs['after'] = datetime.fromisoformat(after.replace('Z', '+00:00'))
+            if until:
+                req_kwargs['until'] = datetime.fromisoformat(until.replace('Z', '+00:00'))
+            if limit:
+                req_kwargs['limit'] = limit
+
+            if req_kwargs:
+                request = GetOrdersRequest(**req_kwargs)
+                orders = self.trading_client.get_orders(request)
+            else:
+                orders = self.trading_client.get_orders()
+
             return [o.dict() for o in orders]
         except Exception as e:
             logger.error(f"API request failed: {e}")

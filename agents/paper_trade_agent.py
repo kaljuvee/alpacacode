@@ -23,6 +23,7 @@ if str(project_root) not in sys.path:
 from utils.alpaca_util import AlpacaAPI
 from utils.massive_util import get_historical_data, get_intraday_prices, is_market_open
 from utils.agent_storage import store_paper_trade
+from utils.pdt_tracker import PDTTracker
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class PaperTradeAgent:
         self.trades: List[Dict[str, Any]] = []
         self.daily_pnl: List[Dict[str, Any]] = []
         self._tracked_positions: Dict[str, Dict] = {}
+        self.pdt_tracker = PDTTracker()
 
     def run(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -61,6 +63,13 @@ class PaperTradeAgent:
         poll_interval = request.get("poll_interval_seconds", 300)
         extended_hours = request.get("extended_hours", False)
         email_notifications = request.get("email_notifications", True)
+
+        # PDT protection: default True, disable with pdt:false for accounts >$25k
+        pdt_protection = request.get("pdt_protection")
+        if pdt_protection is False:
+            self.pdt_tracker = None
+        else:
+            self.pdt_tracker = PDTTracker()
 
         # Strategy parameters with defaults
         dip_threshold = params.get("dip_threshold", 5.0)
@@ -174,14 +183,13 @@ class PaperTradeAgent:
                 else:
                     days_held = 99
 
-                # PDT protection
-                account = self.client.get_account()
-                equity = float(account.get("equity", 0))
-                if equity < 25000 and entry_time_str:
+                # PDT protection using tracker
+                if self.pdt_tracker and entry_time_str:
                     entry_dt = datetime.fromisoformat(entry_time_str)
                     if entry_dt.date() == datetime.now(timezone.utc).date():
-                        logger.debug(f"PDT protection: cannot sell {symbol} same day")
-                        continue
+                        if not self.pdt_tracker.can_day_trade(datetime.now(timezone.utc)):
+                            logger.debug(f"PDT protection: cannot sell {symbol} same day (3 day trades in 5-day window)")
+                            continue
 
                 exit_reason = None
                 if unrealized_pct >= take_profit:
@@ -211,6 +219,12 @@ class PaperTradeAgent:
                         self._tracked_positions.pop(symbol, None)
                         self._store_trade(trade)
                         self._publish_trade_update(trade)
+
+                        # Record day trade in PDT tracker if same-day exit
+                        if self.pdt_tracker and entry_time_str:
+                            entry_dt = datetime.fromisoformat(entry_time_str)
+                            if entry_dt.date() == datetime.now(timezone.utc).date():
+                                self.pdt_tracker.record_day_trade(datetime.now(timezone.utc), symbol)
                     else:
                         logger.error(f"Failed to exit {symbol}: {result['error']}")
 

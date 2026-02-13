@@ -97,6 +97,8 @@ class CommandProcessor:
             return await self._agent_paper(params)
         elif subcmd == "agent:full":
             return await self._agent_full(params)
+        elif subcmd == "agent:reconcile":
+            return await self._agent_reconcile(params)
         elif subcmd == "agent:status":
             return self._agent_status()
         elif subcmd == "agent:runs":
@@ -109,7 +111,8 @@ class CommandProcessor:
             return (
                 f"# Unknown Agent Command\n\n`{subcmd}` is not recognized.\n\n"
                 "Available: `agent:backtest`, `agent:validate`, `agent:paper`, "
-                "`agent:full`, `agent:status`, `agent:runs`, `agent:trades`, `agent:stop`"
+                "`agent:full`, `agent:reconcile`, `agent:status`, `agent:runs`, "
+                "`agent:trades`, `agent:stop`"
             )
 
     def _parse_kv_params(self, parts: list) -> Dict[str, str]:
@@ -146,6 +149,12 @@ class CommandProcessor:
         symbols_str = params.get("symbols", ",".join(self.default_symbols))
         symbols = [s.strip().upper() for s in symbols_str.split(",")]
 
+        # PDT protection: default True (None lets strategy decide), pdt:false disables
+        pdt_val = params.get("pdt")
+        pdt_protection = None  # let strategy default (True if capital < $25k)
+        if pdt_val is not None:
+            pdt_protection = pdt_val.lower() not in ("false", "no", "0", "off")
+
         config = {
             "strategy": params.get("strategy", "buy_the_dip"),
             "symbols": symbols,
@@ -153,6 +162,7 @@ class CommandProcessor:
             "initial_capital": float(params.get("capital", self.default_capital)),
             "extended_hours": params.get("hours") == "extended",
             "intraday_exit": params.get("intraday_exit", "false").lower() in ("true", "yes", "1", "on"),
+            "pdt_protection": pdt_protection,
         }
 
         result = await asyncio.to_thread(orch.run_backtest, config)
@@ -235,6 +245,12 @@ class CommandProcessor:
         symbols = [s.strip().upper() for s in symbols_str.split(",")]
         duration = params.get("duration", "7d")
 
+        # PDT protection
+        pdt_val = params.get("pdt")
+        pdt_protection = None
+        if pdt_val is not None:
+            pdt_protection = pdt_val.lower() not in ("false", "no", "0", "off")
+
         config = {
             "strategy": params.get("strategy", "buy_the_dip"),
             "symbols": symbols,
@@ -242,6 +258,7 @@ class CommandProcessor:
             "poll_interval_seconds": int(params.get("poll", "300")),
             "extended_hours": params.get("hours") == "extended",
             "email_notifications": params.get("email", "true").lower() not in ("false", "no", "0", "off"),
+            "pdt_protection": pdt_protection,
         }
 
         run_id = orch.run_id
@@ -282,6 +299,12 @@ class CommandProcessor:
         symbols = [s.strip().upper() for s in symbols_str.split(",")]
         duration = params.get("duration", "1m")
 
+        # PDT protection
+        pdt_val = params.get("pdt")
+        pdt_protection = None
+        if pdt_val is not None:
+            pdt_protection = pdt_val.lower() not in ("false", "no", "0", "off")
+
         config = {
             "strategy": params.get("strategy", "buy_the_dip"),
             "symbols": symbols,
@@ -291,6 +314,7 @@ class CommandProcessor:
             "poll_interval_seconds": int(params.get("poll", "300")),
             "extended_hours": params.get("hours") == "extended",
             "intraday_exit": params.get("intraday_exit", "false").lower() in ("true", "yes", "1", "on"),
+            "pdt_protection": pdt_protection,
         }
 
         result = await asyncio.to_thread(orch.run_full, config)
@@ -337,6 +361,69 @@ class CommandProcessor:
                 f"## Paper Validation: {pv.get('status', 'n/a')}\n"
                 f"- Anomalies: {pv.get('anomalies_found', 0)} found\n"
             )
+
+        return md
+
+    # ------------------------------------------------------------------
+    # agent:reconcile
+    # ------------------------------------------------------------------
+
+    async def _agent_reconcile(self, params: Dict) -> str:
+        """Run reconciliation against Alpaca actual holdings."""
+        orch = self._new_orchestrator()
+
+        window_str = params.get("window", "7d")
+        # Parse window: "7d" -> 7
+        window_days = int(window_str.rstrip("d")) if window_str.endswith("d") else int(window_str)
+
+        config = {"window_days": window_days}
+        result = await asyncio.to_thread(orch.run_reconciliation, config)
+
+        if "error" in result:
+            return f"# Reconciliation Failed\n\n```\n{result['error']}\n```"
+
+        status = result.get("status", "unknown")
+        total_issues = result.get("total_issues", 0)
+
+        md = f"# Reconciliation: {status.upper()}\n\n"
+        md += f"- **Total Issues**: {total_issues}\n\n"
+
+        # Position mismatches
+        pos = result.get("position_mismatches", [])
+        if pos:
+            md += "## Position Mismatches\n\n"
+            md += "| Type | Symbol | Details |\n|------|--------|---------|\n"
+            for p in pos:
+                md += f"| {p.get('type', '')} | {p.get('symbol', '')} | {p.get('message', '')} |\n"
+            md += "\n"
+
+        # Missing trades (in Alpaca not in DB)
+        missing = result.get("missing_trades", [])
+        if missing:
+            md += f"## Missing Trades ({len(missing)} in Alpaca, not in DB)\n\n"
+            md += "| Symbol | Side | Qty | Filled At |\n|--------|------|-----|-----------|\n"
+            for t in missing[:20]:
+                md += f"| {t.get('symbol', '')} | {t.get('side', '')} | {t.get('qty', '')} | {str(t.get('filled_at', ''))[:19]} |\n"
+            md += "\n"
+
+        # Extra trades (in DB not in Alpaca)
+        extra = result.get("extra_trades", [])
+        if extra:
+            md += f"## Extra Trades ({len(extra)} in DB, not in Alpaca)\n\n"
+            md += "| Symbol | Side | Message |\n|--------|------|---------|\n"
+            for t in extra[:20]:
+                md += f"| {t.get('symbol', '')} | {t.get('side', '')} | {t.get('message', '')} |\n"
+            md += "\n"
+
+        # P&L comparison
+        pnl = result.get("pnl_comparison", {})
+        if pnl:
+            md += "## P&L Comparison\n\n"
+            md += "| Metric | Value |\n|--------|-------|\n"
+            md += f"| Alpaca Equity | ${pnl.get('alpaca_equity', 0):,.2f} |\n"
+            md += f"| Alpaca Cash | ${pnl.get('alpaca_cash', 0):,.2f} |\n"
+            md += f"| Alpaca Portfolio Value | ${pnl.get('alpaca_portfolio_value', 0):,.2f} |\n"
+            md += f"| DB Total P&L | ${pnl.get('db_total_pnl', 0):,.2f} |\n"
 
         return md
 
@@ -521,6 +608,7 @@ agent:backtest lookback:1m
 agent:backtest lookback:3m strategy:buy_the_dip symbols:AAPL,TSLA
 agent:backtest lookback:1m hours:extended
 agent:backtest lookback:1m intraday_exit:true
+agent:backtest lookback:1m pdt:false              Disable PDT rule (for >$25k accounts)
 ```
 
 ### Validate
@@ -544,6 +632,12 @@ agent:full lookback:3m duration:7d strategy:buy_the_dip
 agent:full lookback:1m duration:7d hours:extended
 ```
 
+### Reconcile (compare DB vs Alpaca)
+```
+agent:reconcile                    Reconcile positions/trades (default 7d window)
+agent:reconcile window:14d         Custom window
+```
+
 ### Query & Monitor
 ```
 agent:status           Show agent states and current run
@@ -561,6 +655,10 @@ agent:stop             Stop background paper trading
 ## Intraday Exits
 - `intraday_exit:true` — Check TP/SL within the trading day using intraday bars
 - Default is daily bar exits only
+
+## PDT Rule (Pattern Day Trader)
+- Default: ON (blocks 4th day trade in rolling 5-business-day window)
+- `pdt:false` to disable (for accounts > $25k)
 
 ## Email Notifications
 - Paper trading sends daily P&L reports via Postmark (default: on)

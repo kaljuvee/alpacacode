@@ -485,12 +485,12 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
     
     # Override drawdown and annualized return if we have equity_df
     if not equity_df.empty:
-        # Annualized return from equity curve
+        # Annualized return from equity curve (simple arithmetic annualisation)
         final_equity = equity_df['equity'].iloc[-1]
         days = (end_date - start_date).days
-        years = days / 365.25
-        if years > 0:
-            metrics['annualized_return'] = ((final_equity / initial_capital) ** (1 / years) - 1) * 100
+        if days > 0:
+            equity_return = ((final_equity - initial_capital) / initial_capital) * 100
+            metrics['annualized_return'] = equity_return * 365.25 / days
         
         # Max drawdown from equity curve
         ec = equity_df['equity'].values

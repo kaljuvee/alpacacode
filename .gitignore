@@ -209,3 +209,5 @@ __marimo__/
 # Runtime data
 data/
 backtest-results/
+agent_orchestrator.log
+trading.log

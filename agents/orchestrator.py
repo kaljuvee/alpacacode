@@ -82,12 +82,12 @@ class Orchestrator:
         self._config = config
         if self._mode is None:
             self._mode = "backtest"
+            self.state.mode = "backtest"
             store_run(self.run_id, "backtest",
                       strategy=config.get("strategy", "buy_the_dip"),
                       config=config)
         agent_state = self.state.get_agent("backtester")
         agent_state.set_running("parameterized_backtest")
-        self.state.mode = "backtest"
         self.state.save()
 
         logger.info("=" * 60)
@@ -145,10 +145,10 @@ class Orchestrator:
         """Run validation phase."""
         if self._mode is None:
             self._mode = "validate"
+            self.state.mode = "validate"
             store_run(self.run_id, "validate", config={"source_run_id": run_id})
         agent_state = self.state.get_agent("validator")
         agent_state.set_running("trade_validation")
-        self.state.mode = "validate"
         self.state.save()
 
         logger.info("=" * 60)
@@ -209,12 +209,12 @@ class Orchestrator:
         self._config = config
         if self._mode is None:
             self._mode = "paper"
+            self.state.mode = "paper"
             store_run(self.run_id, "paper",
                       strategy=config.get("strategy", "buy_the_dip"),
                       config=config)
         agent_state = self.state.get_agent("paper_trader")
         agent_state.set_running("paper_trading")
-        self.state.mode = "paper_trade"
         self.state.save()
 
         logger.info("=" * 60)
@@ -338,10 +338,10 @@ class Orchestrator:
         config = config or {}
         if self._mode is None:
             self._mode = "reconcile"
+            self.state.mode = "reconcile"
             store_run(self.run_id, "reconcile", config=config)
         agent_state = self.state.get_agent("reconciler")
         agent_state.set_running("reconciliation")
-        self.state.mode = "reconcile"
         self.state.save()
 
         logger.info("=" * 60)

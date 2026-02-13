@@ -41,6 +41,16 @@ def _get_pool():
     return DatabasePool()
 
 
+def _py(val):
+    """Convert numpy scalars to native Python types for SQL parameters."""
+    if val is None:
+        return None
+    try:
+        return val.item()
+    except (AttributeError, ValueError):
+        return val
+
+
 # ---------------------------------------------------------------------------
 # Runs (DB only)
 # ---------------------------------------------------------------------------
@@ -154,13 +164,13 @@ def _store_backtest_db(run_id: str, best: Dict, all_results: List[Dict],
                     "run_id": run_id,
                     "idx": idx,
                     "params": json.dumps(params, default=str),
-                    "total_return": variation.get("total_return"),
-                    "total_pnl": variation.get("total_pnl"),
-                    "win_rate": variation.get("win_rate"),
-                    "total_trades": variation.get("total_trades"),
-                    "sharpe_ratio": variation.get("sharpe_ratio"),
-                    "max_drawdown": variation.get("max_drawdown"),
-                    "annualized_return": variation.get("annualized_return"),
+                    "total_return": _py(variation.get("total_return")),
+                    "total_pnl": _py(variation.get("total_pnl")),
+                    "win_rate": _py(variation.get("win_rate")),
+                    "total_trades": _py(variation.get("total_trades")),
+                    "sharpe_ratio": _py(variation.get("sharpe_ratio")),
+                    "max_drawdown": _py(variation.get("max_drawdown")),
+                    "annualized_return": _py(variation.get("annualized_return")),
                     "is_best": is_best,
                 },
             )
@@ -184,22 +194,22 @@ def _store_backtest_db(run_id: str, best: Dict, all_results: List[Dict],
                 """),
                 {
                     "run_id": run_id,
-                    "symbol": t.get("symbol"),
+                    "symbol": t.get("ticker") or t.get("symbol"),
                     "direction": t.get("direction", "long"),
-                    "shares": t.get("shares") or t.get("qty"),
+                    "shares": _py(t.get("shares") or t.get("qty")),
                     "entry_time": t.get("entry_time") or t.get("entry_date"),
                     "exit_time": t.get("exit_time") or t.get("exit_date"),
-                    "entry_price": t.get("entry_price"),
-                    "exit_price": t.get("exit_price"),
-                    "target_price": t.get("target_price"),
-                    "stop_price": t.get("stop_price"),
+                    "entry_price": _py(t.get("entry_price")),
+                    "exit_price": _py(t.get("exit_price")),
+                    "target_price": _py(t.get("target_price")),
+                    "stop_price": _py(t.get("stop_price")),
                     "hit_target": t.get("hit_target"),
                     "hit_stop": t.get("hit_stop"),
-                    "pnl": t.get("pnl"),
-                    "pnl_pct": t.get("pnl_pct"),
-                    "capital_after": t.get("capital_after"),
-                    "total_fees": t.get("total_fees", 0),
-                    "dip_pct": t.get("dip_pct"),
+                    "pnl": _py(t.get("pnl")),
+                    "pnl_pct": _py(t.get("pnl_pct")),
+                    "capital_after": _py(t.get("capital_after")),
+                    "total_fees": _py(t.get("total_fees", 0)),
+                    "dip_pct": _py(t.get("dip_pct")),
                     "reason": t.get("reason"),
                 },
             )
@@ -287,20 +297,20 @@ def _store_paper_trade_db(session_id: str, trade: Dict):
                 "run_id": session_id,
                 "symbol": trade.get("symbol"),
                 "direction": trade.get("side") or trade.get("direction"),
-                "shares": trade.get("qty") or trade.get("shares"),
+                "shares": _py(trade.get("qty") or trade.get("shares")),
                 "entry_time": trade.get("entry_time"),
                 "exit_time": trade.get("exit_time"),
-                "entry_price": trade.get("entry_price") or trade.get("price"),
-                "exit_price": trade.get("exit_price") or trade.get("filled_price"),
-                "target_price": trade.get("target_price"),
-                "stop_price": trade.get("stop_price"),
+                "entry_price": _py(trade.get("entry_price") or trade.get("price")),
+                "exit_price": _py(trade.get("exit_price") or trade.get("filled_price")),
+                "target_price": _py(trade.get("target_price")),
+                "stop_price": _py(trade.get("stop_price")),
                 "hit_target": trade.get("hit_target"),
                 "hit_stop": trade.get("hit_stop"),
-                "pnl": trade.get("pnl"),
-                "pnl_pct": trade.get("pnl_pct"),
-                "capital_after": trade.get("capital_after"),
-                "total_fees": trade.get("total_fees", 0),
-                "dip_pct": trade.get("dip_pct"),
+                "pnl": _py(trade.get("pnl")),
+                "pnl_pct": _py(trade.get("pnl_pct")),
+                "capital_after": _py(trade.get("capital_after")),
+                "total_fees": _py(trade.get("total_fees", 0)),
+                "dip_pct": _py(trade.get("dip_pct")),
                 "order_id": trade.get("order_id"),
                 "reason": trade.get("reason") or trade.get("notes"),
             },

@@ -132,10 +132,15 @@ class CommandProcessor:
         return self.app._orch
 
     def _new_orchestrator(self) -> "Orchestrator":
-        """Create a fresh Orchestrator (new run_id)."""
+        """Create a fresh Orchestrator (new run_id, clean state)."""
         from agents.orchestrator import Orchestrator
-        self.app._orch = Orchestrator()
-        return self.app._orch
+        orch = Orchestrator()
+        # Clear stale state loaded from disk so status shows current run only
+        orch.state.mode = None
+        orch.state.best_config = None
+        orch.state.validation_results = []
+        self.app._orch = orch
+        return orch
 
     # ------------------------------------------------------------------
     # agent:backtest
@@ -246,6 +251,7 @@ class CommandProcessor:
             )
 
         orch = self._new_orchestrator()
+        orch._mode = "paper"  # set eagerly so agent:status shows correct mode
         self.app._bg_stop.clear()
 
         symbols_str = params.get("symbols", ",".join(self.default_symbols))

@@ -203,6 +203,79 @@ class ValidateAgent:
 
         return anomalies
 
+    def check_summary_metrics(self, metrics: Dict, trades: List[Dict],
+                              initial_capital: float, start_date, end_date) -> List[Dict]:
+        """
+        Validate summary-level metrics for consistency.
+
+        Checks:
+        - annualized_return == total_return * (365.25 / days)
+        - win_rate == winning_trades / total_trades * 100
+        - total_return == total_pnl / initial_capital * 100
+        - Sharpe ratio is not NaN/Inf
+        """
+        anomalies = []
+
+        total_return = metrics.get("total_return", 0)
+        total_pnl = metrics.get("total_pnl", 0)
+        annualized_return = metrics.get("annualized_return", 0)
+        win_rate = metrics.get("win_rate", 0)
+        total_trades = metrics.get("total_trades", 0)
+        winning_trades = metrics.get("winning_trades", 0)
+        sharpe = metrics.get("sharpe_ratio", 0)
+
+        # Parse dates
+        sd = self._parse_datetime(start_date) if not isinstance(start_date, datetime) else start_date
+        ed = self._parse_datetime(end_date) if not isinstance(end_date, datetime) else end_date
+        days = (ed - sd).days
+
+        # 1. Check total_return vs total_pnl / initial_capital
+        if initial_capital > 0:
+            expected_return = (total_pnl / initial_capital) * 100
+            if not np.isclose(total_return, expected_return, atol=0.1):
+                anomalies.append({
+                    "type": "summary_total_return",
+                    "expected": expected_return,
+                    "actual": total_return,
+                    "message": f"total_return {total_return:.2f}% != total_pnl/capital ({expected_return:.2f}%)",
+                })
+
+        # 2. Check annualized_return consistency
+        if days > 0:
+            expected_annual = total_return * 365.25 / days
+            if abs(annualized_return) > 0.01 or abs(expected_annual) > 0.01:
+                if not np.isclose(annualized_return, expected_annual, rtol=0.05):
+                    anomalies.append({
+                        "type": "summary_annualized_return",
+                        "expected": expected_annual,
+                        "actual": annualized_return,
+                        "message": (
+                            f"annualized_return {annualized_return:.2f}% != "
+                            f"total_return*365.25/{days} ({expected_annual:.2f}%)"
+                        ),
+                    })
+
+        # 3. Check win_rate
+        if total_trades > 0:
+            expected_wr = (winning_trades / total_trades) * 100
+            if not np.isclose(win_rate, expected_wr, atol=0.1):
+                anomalies.append({
+                    "type": "summary_win_rate",
+                    "expected": expected_wr,
+                    "actual": win_rate,
+                    "message": f"win_rate {win_rate:.1f}% != {winning_trades}/{total_trades} ({expected_wr:.1f}%)",
+                })
+
+        # 4. Sharpe sanity check
+        if np.isnan(sharpe) or np.isinf(sharpe):
+            anomalies.append({
+                "type": "summary_sharpe_invalid",
+                "actual": sharpe,
+                "message": f"Sharpe ratio is {sharpe} (NaN/Inf)",
+            })
+
+        return anomalies
+
     def _check_price_tolerance(self, trade: Dict, tolerance: float) -> List[Dict]:
         """Check recorded prices against actual market data."""
         issues = []

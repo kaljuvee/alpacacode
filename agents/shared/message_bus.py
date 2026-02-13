@@ -67,6 +67,8 @@ class MessageBus:
         "trade_update",
         "error",
         "correction",
+        "reconciliation_request",
+        "reconciliation_result",
     }
 
     def __init__(self, messages_dir: Optional[str] = None):

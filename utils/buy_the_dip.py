@@ -10,6 +10,7 @@ from typing import Dict, List, Tuple, Optional
 import yfinance as yf
 import pytz
 from utils.massive_util import is_market_open, MassiveUtil
+from utils.pdt_tracker import PDTTracker
 massive_util = MassiveUtil()
 
 
@@ -115,7 +116,7 @@ def calculate_cat_fee(shares: int) -> float:
 
 def _check_intraday_exit(symbol: str, trade: Dict, current_date,
                          intraday_data: Dict[str, pd.DataFrame],
-                         pdt_active: bool) -> Optional[Dict]:
+                         pdt_tracker: Optional[PDTTracker]) -> Optional[Dict]:
     """
     Check intraday bars for TP/SL exit within a single day.
 
@@ -135,8 +136,9 @@ def _check_intraday_exit(symbol: str, trade: Dict, current_date,
     if day_bars.empty:
         return None
 
-    # PDT check
-    if pdt_active and day_date == trade['entry_date_raw']:
+    # PDT check: block same-day exit if tracker says we can't day trade
+    is_same_day = day_date == trade['entry_date_raw']
+    if is_same_day and pdt_tracker and not pdt_tracker.can_day_trade(day_date):
         return None
 
     for bar_time, bar in day_bars.iterrows():
@@ -203,11 +205,13 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
     # Import calculate_metrics from backtester_util
     from utils.backtester_util import calculate_metrics
     
-    # Set PDT status
+    # Set PDT status and create tracker
     if pdt_protection is None:
         pdt_active = initial_capital < 25000
     else:
         pdt_active = pdt_protection
+
+    pdt_tracker = PDTTracker() if pdt_active else None
     
     # Determine lookback_periods based on interval
     # We want approx 20 trading days of lookback
@@ -335,15 +339,15 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
                     exit_display_time = exit_display_time.astimezone(eastern)
                 exit_display_time = exit_display_time.replace(hour=16, minute=0)
 
-            # PDT Check
+            # PDT Check using tracker
             is_same_day = current_date.date() == trade['entry_date_raw']
-            can_day_trade = not (pdt_active and is_same_day)
+            can_day_trade = not is_same_day or (pdt_tracker is None or pdt_tracker.can_day_trade(current_date))
 
             # Try intraday exit first for precise TP/SL ordering
             intraday_result = None
             if intraday_exit and can_day_trade and intraday_data:
                 intraday_result = _check_intraday_exit(
-                    symbol, trade, current_date, intraday_data, pdt_active
+                    symbol, trade, current_date, intraday_data, pdt_tracker
                 )
 
             if intraday_result:
@@ -412,6 +416,10 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
             })
             closed_this_tick.append(symbol)
             exited_today.add(symbol)
+
+            # Record day trade in PDT tracker if same-day exit
+            if is_same_day and pdt_tracker:
+                pdt_tracker.record_day_trade(current_date, symbol)
 
         for symbol in closed_this_tick:
             del active_trades[symbol]
@@ -483,16 +491,8 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
     # Calculate metrics using equity curve for drawdown for better accuracy
     metrics = calculate_metrics(trades_df, initial_capital, start_date, end_date)
     
-    # Override drawdown and annualized return if we have equity_df
+    # Override max drawdown from equity curve (more accurate than trade-only)
     if not equity_df.empty:
-        # Annualized return from equity curve (simple arithmetic annualisation)
-        final_equity = equity_df['equity'].iloc[-1]
-        days = (end_date - start_date).days
-        if days > 0:
-            equity_return = ((final_equity - initial_capital) / initial_capital) * 100
-            metrics['annualized_return'] = equity_return * 365.25 / days
-        
-        # Max drawdown from equity curve
         ec = equity_df['equity'].values
         running_max = np.maximum.accumulate(ec)
         drawdown = (ec - running_max) / running_max

@@ -15,7 +15,7 @@ Trading strategy simulator, backtester, and paper trader.
 | Directory | Purpose |
 |-----------|---------|
 | `pages/` | Streamlit pages (VIX, AI Assistant, Alpaca Trader, Alpaca Chat, Futures, Methodology) |
-| `utils/` | Core logic (alpaca_util, buy_the_dip, vix_strategy, momentum, massive_util, backtester_util, backtest_db_util) |
+| `utils/` | Core logic (alpaca_util, buy_the_dip, vix_strategy, momentum, massive_util, backtester_util, backtest_db_util, pdt_tracker) |
 | `utils/db/` | Database pool (`db_pool.py`) |
 | `tasks/` | CLI tools (cli_trader.py, validate_backtest.py) |
 | `tui/` | Textual TUI app |
@@ -45,7 +45,7 @@ DATABASE_URL=...           # PostgreSQL connection string
 
 ## Multi-Agent System
 
-Four agents collaborate to backtest, paper trade, and validate strategies:
+Five agents collaborate to backtest, paper trade, validate, and reconcile strategies:
 
 ### Agent 1: Backtester (`agents/backtest_agent.py`)
 - Runs parameterized backtests varying symbols, date ranges, and strategy parameters
@@ -67,6 +67,11 @@ Four agents collaborate to backtest, paper trade, and validate strategies:
 - Orchestrator — dispatches work, tracks state, routes messages
 - Workflow: Backtest -> Validate -> Paper Trade -> Validate -> Report
 
+### Agent 5: Reconciler (`agents/reconcile_agent.py`)
+- Compares DB positions/P&L vs actual Alpaca holdings for a given time window
+- Checks: position match, trade match, P&L comparison, missing/extra trades
+- Accepts `window_days` param (default 7)
+
 ### Communication
 - File-based JSON message bus (`data/agent_messages/`)
 - Messages: `{from_agent, to_agent, type, payload, timestamp}`
@@ -84,15 +89,18 @@ python alpaca_code.py
 #   agent:backtest lookback:1m                Run parameterized backtest
 #   agent:backtest lookback:1m hours:extended Extended hours backtest
 #   agent:backtest lookback:1m intraday_exit:true  Intraday TP/SL exits
+#   agent:backtest lookback:1m pdt:false      Disable PDT rule (>$25k accounts)
 #   agent:paper duration:7d                   Paper trade in background
 #   agent:paper duration:7d hours:extended    Extended hours paper trading
 #   agent:full lookback:1m duration:1m        Full cycle
+#   agent:reconcile window:7d                 Reconcile DB vs Alpaca
 
 # Orchestrator (direct invocation)
 python agents/orchestrator.py --mode full
 python agents/orchestrator.py --mode backtest
 python agents/orchestrator.py --mode validate --run-id <uuid>
 python agents/orchestrator.py --mode paper --duration 1h
+python agents/orchestrator.py --mode reconcile --window 7
 ```
 
 ### Extended Hours
@@ -104,6 +112,13 @@ python agents/orchestrator.py --mode paper --duration 1h
 - `intraday_exit:true` — Use 5-min intraday bars for precise TP/SL exit timing
 - Determines which of TP/SL is hit first within each day
 - No same-day re-entry after exit
+
+### PDT Rule (Pattern Day Trader)
+- FINRA PDT rule enforced by default: max 3 day trades per rolling 5-business-day window
+- `pdt:false` to disable for accounts > $25k
+- Tracked via `utils/pdt_tracker.py` (`PDTTracker` class)
+- Applies to both backtesting and paper trading
+- Flows through: CLI → Orchestrator → Agent → Strategy util
 
 ### Email Notifications
 - Paper trading sends daily P&L reports via Postmark

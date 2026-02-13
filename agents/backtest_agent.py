@@ -80,6 +80,7 @@ class BacktestAgent:
         variations = request.get("variations") or DEFAULT_VARIATIONS.get(strategy, {})
         extended_hours = request.get("extended_hours", False)
         intraday_exit = request.get("intraday_exit", False)
+        pdt_protection = request.get("pdt_protection")
 
         # Determine date range
         end_date = datetime.now()
@@ -108,6 +109,7 @@ class BacktestAgent:
                 run_id=run_id,
                 extended_hours=extended_hours,
                 intraday_exit=intraday_exit,
+                pdt_protection=pdt_protection,
             )
         elif strategy == "momentum":
             results = self._run_momentum(
@@ -183,6 +185,7 @@ class BacktestAgent:
         run_id: str,
         extended_hours: bool = False,
         intraday_exit: bool = False,
+        pdt_protection: Optional[bool] = None,
     ) -> List[Dict]:
         """Run buy-the-dip backtests across a parameter grid."""
         dip_thresholds = variations.get("dip_threshold", [0.05])
@@ -216,6 +219,7 @@ class BacktestAgent:
                     data_source=data_source,
                     extended_hours=extended_hours,
                     intraday_exit=intraday_exit,
+                    pdt_protection=pdt_protection,
                 )
 
                 # backtest_buy_the_dip returns None when no price data available

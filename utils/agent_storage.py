@@ -3,11 +3,14 @@ Agent Storage Utility
 
 Provides configurable storage backends (file or DB) for agent results.
 Controlled by `general.storage_backend` in config/parameters.yaml.
+
+DB backend writes to the `alpacacode` schema (runs, backtest_summaries,
+trades, validations).
 """
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -32,6 +35,70 @@ def get_storage_backend() -> str:
         return "file"
 
 
+def _get_pool():
+    """Lazily import and return a DatabasePool instance."""
+    from utils.db.db_pool import DatabasePool
+    return DatabasePool()
+
+
+# ---------------------------------------------------------------------------
+# Runs (DB only)
+# ---------------------------------------------------------------------------
+
+def store_run(run_id: str, mode: str, strategy: str = None,
+              config: Dict = None):
+    """Insert a new row into alpacacode.runs."""
+    backend = get_storage_backend()
+    if backend != "db":
+        return
+    from sqlalchemy import text
+    pool = _get_pool()
+    with pool.get_session() as session:
+        session.execute(
+            text("""
+                INSERT INTO alpacacode.runs
+                    (run_id, mode, strategy, status, config, started_at)
+                VALUES
+                    (:run_id, :mode, :strategy, 'running', :config, :started_at)
+                ON CONFLICT (run_id) DO NOTHING
+            """),
+            {
+                "run_id": run_id,
+                "mode": mode,
+                "strategy": strategy,
+                "config": json.dumps(config or {}, default=str),
+                "started_at": datetime.now(timezone.utc),
+            },
+        )
+    logger.info(f"Run {run_id} stored (mode={mode})")
+
+
+def update_run(run_id: str, status: str, results: Dict = None):
+    """Update an existing run with final status and results."""
+    backend = get_storage_backend()
+    if backend != "db":
+        return
+    from sqlalchemy import text
+    pool = _get_pool()
+    with pool.get_session() as session:
+        session.execute(
+            text("""
+                UPDATE alpacacode.runs
+                SET status = :status,
+                    results = :results,
+                    completed_at = :completed_at
+                WHERE run_id = :run_id
+            """),
+            {
+                "run_id": run_id,
+                "status": status,
+                "results": json.dumps(results or {}, default=str),
+                "completed_at": datetime.now(timezone.utc),
+            },
+        )
+    logger.info(f"Run {run_id} updated -> {status}")
+
+
 # ---------------------------------------------------------------------------
 # Backtest results
 # ---------------------------------------------------------------------------
@@ -41,7 +108,7 @@ def store_backtest_results(run_id: str, best: Dict, all_results: List[Dict],
     """Store backtest results using the configured backend."""
     backend = get_storage_backend()
     if backend == "db":
-        _store_backtest_db(run_id, best, all_results)
+        _store_backtest_db(run_id, best, all_results, trades)
     else:
         _store_backtest_file(run_id, best, all_results, trades)
 
@@ -61,31 +128,86 @@ def _store_backtest_file(run_id: str, best: Dict, all_results: List[Dict],
     logger.info(f"Backtest results written to {path}")
 
 
-def _store_backtest_db(run_id: str, best: Dict, all_results: List[Dict]):
-    from utils.backtest_db_util import BacktestDatabaseUtil
+def _store_backtest_db(run_id: str, best: Dict, all_results: List[Dict],
+                       trades: Optional[List[Dict]] = None):
+    """Write backtest summaries + trades into the alpacacode schema."""
+    from sqlalchemy import text
+    pool = _get_pool()
 
-    db = BacktestDatabaseUtil()
-    params = best.get("params", {})
-    db.store_backtest_summary({
-        "run_id": run_id,
-        "model_name": "backtest_agent",
-        "start_date": str(datetime.now().date() - timedelta(days=90)),
-        "end_date": str(datetime.now().date()),
-        "initial_capital": 10000,
-        "final_capital": 10000 + best.get("total_pnl", 0),
-        "total_pnl": best.get("total_pnl", 0),
-        "return_percent": best.get("total_return", 0),
-        "total_trades": best.get("total_trades", 0),
-        "winning_trades": 0,
-        "losing_trades": 0,
-        "win_rate_percent": best.get("win_rate", 0),
-        "max_drawdown": best.get("max_drawdown", 0),
-        "sharpe_ratio": best.get("sharpe_ratio", 0),
-        "annualized_return": best.get("annualized_return", 0),
-        "agent": "backtest_agent",
-        "notes": f"Grid search: {len(all_results)} variations. Best params: {params}",
-    })
-    logger.info(f"Backtest results stored to DB for run {run_id}")
+    with pool.get_session() as session:
+        # --- backtest_summaries ---
+        for idx, variation in enumerate(all_results):
+            is_best = (variation == best)
+            params = variation.get("params", {})
+            session.execute(
+                text("""
+                    INSERT INTO alpacacode.backtest_summaries
+                        (run_id, variation_index, params, total_return, total_pnl,
+                         win_rate, total_trades, sharpe_ratio, max_drawdown,
+                         annualized_return, is_best)
+                    VALUES
+                        (:run_id, :idx, :params, :total_return, :total_pnl,
+                         :win_rate, :total_trades, :sharpe_ratio, :max_drawdown,
+                         :annualized_return, :is_best)
+                """),
+                {
+                    "run_id": run_id,
+                    "idx": idx,
+                    "params": json.dumps(params, default=str),
+                    "total_return": variation.get("total_return"),
+                    "total_pnl": variation.get("total_pnl"),
+                    "win_rate": variation.get("win_rate"),
+                    "total_trades": variation.get("total_trades"),
+                    "sharpe_ratio": variation.get("sharpe_ratio"),
+                    "max_drawdown": variation.get("max_drawdown"),
+                    "annualized_return": variation.get("annualized_return"),
+                    "is_best": is_best,
+                },
+            )
+
+        # --- trades (trade_type='backtest') ---
+        for t in (trades or []):
+            session.execute(
+                text("""
+                    INSERT INTO alpacacode.trades
+                        (run_id, trade_type, symbol, direction, shares,
+                         entry_time, exit_time, entry_price, exit_price,
+                         target_price, stop_price, hit_target, hit_stop,
+                         pnl, pnl_pct, capital_after, total_fees, dip_pct,
+                         reason)
+                    VALUES
+                        (:run_id, 'backtest', :symbol, :direction, :shares,
+                         :entry_time, :exit_time, :entry_price, :exit_price,
+                         :target_price, :stop_price, :hit_target, :hit_stop,
+                         :pnl, :pnl_pct, :capital_after, :total_fees, :dip_pct,
+                         :reason)
+                """),
+                {
+                    "run_id": run_id,
+                    "symbol": t.get("symbol"),
+                    "direction": t.get("direction", "long"),
+                    "shares": t.get("shares") or t.get("qty"),
+                    "entry_time": t.get("entry_time") or t.get("entry_date"),
+                    "exit_time": t.get("exit_time") or t.get("exit_date"),
+                    "entry_price": t.get("entry_price"),
+                    "exit_price": t.get("exit_price"),
+                    "target_price": t.get("target_price"),
+                    "stop_price": t.get("stop_price"),
+                    "hit_target": t.get("hit_target"),
+                    "hit_stop": t.get("hit_stop"),
+                    "pnl": t.get("pnl"),
+                    "pnl_pct": t.get("pnl_pct"),
+                    "capital_after": t.get("capital_after"),
+                    "total_fees": t.get("total_fees", 0),
+                    "dip_pct": t.get("dip_pct"),
+                    "reason": t.get("reason"),
+                },
+            )
+
+    logger.info(
+        f"Backtest DB: {len(all_results)} summaries, "
+        f"{len(trades or [])} trades for run {run_id}"
+    )
 
 
 def fetch_backtest_trades(run_id: str) -> List[Dict]:
@@ -106,8 +228,19 @@ def _fetch_backtest_trades_file(run_id: str) -> List[Dict]:
 
 
 def _fetch_backtest_trades_db(run_id: str) -> List[Dict]:
-    from utils.backtest_db_util import get_individual_trades
-    return get_individual_trades(run_id)
+    from sqlalchemy import text
+    pool = _get_pool()
+    with pool.get_session() as session:
+        result = session.execute(
+            text("""
+                SELECT * FROM alpacacode.trades
+                WHERE trade_type = 'backtest' AND run_id = :run_id
+                ORDER BY entry_time
+            """),
+            {"run_id": run_id},
+        )
+        columns = result.keys()
+        return [dict(zip(columns, row)) for row in result.fetchall()]
 
 
 # ---------------------------------------------------------------------------
@@ -132,35 +265,44 @@ def _store_paper_trade_file(session_id: str, trade: Dict):
 
 
 def _store_paper_trade_db(session_id: str, trade: Dict):
-    from utils.db.db_pool import DatabasePool
     from sqlalchemy import text
-
-    pool = DatabasePool()
+    pool = _get_pool()
     with pool.get_session() as session:
         session.execute(
             text("""
-                INSERT INTO trades (run_id, session_id, agent, symbol, side, qty,
-                                    price, filled_price, order_id, status, pnl,
-                                    pnl_pct, strategy, notes)
-                VALUES (:run_id, :session_id, :agent, :symbol, :side, :qty,
-                        :price, :filled_price, :order_id, :status, :pnl,
-                        :pnl_pct, :strategy, :notes)
+                INSERT INTO alpacacode.trades
+                    (run_id, trade_type, symbol, direction, shares,
+                     entry_time, exit_time, entry_price, exit_price,
+                     target_price, stop_price, hit_target, hit_stop,
+                     pnl, pnl_pct, capital_after, total_fees, dip_pct,
+                     order_id, reason)
+                VALUES
+                    (:run_id, 'paper', :symbol, :direction, :shares,
+                     :entry_time, :exit_time, :entry_price, :exit_price,
+                     :target_price, :stop_price, :hit_target, :hit_stop,
+                     :pnl, :pnl_pct, :capital_after, :total_fees, :dip_pct,
+                     :order_id, :reason)
             """),
             {
                 "run_id": session_id,
-                "session_id": session_id,
-                "agent": "paper_trader",
                 "symbol": trade.get("symbol"),
-                "side": trade.get("side"),
-                "qty": trade.get("qty", 0),
-                "price": trade.get("price") or trade.get("entry_price"),
-                "filled_price": trade.get("exit_price"),
-                "order_id": trade.get("order_id"),
-                "status": "filled",
+                "direction": trade.get("side") or trade.get("direction"),
+                "shares": trade.get("qty") or trade.get("shares"),
+                "entry_time": trade.get("entry_time"),
+                "exit_time": trade.get("exit_time"),
+                "entry_price": trade.get("entry_price") or trade.get("price"),
+                "exit_price": trade.get("exit_price") or trade.get("filled_price"),
+                "target_price": trade.get("target_price"),
+                "stop_price": trade.get("stop_price"),
+                "hit_target": trade.get("hit_target"),
+                "hit_stop": trade.get("hit_stop"),
                 "pnl": trade.get("pnl"),
                 "pnl_pct": trade.get("pnl_pct"),
-                "strategy": "buy_the_dip",
-                "notes": trade.get("reason", ""),
+                "capital_after": trade.get("capital_after"),
+                "total_fees": trade.get("total_fees", 0),
+                "dip_pct": trade.get("dip_pct"),
+                "order_id": trade.get("order_id"),
+                "reason": trade.get("reason") or trade.get("notes"),
             },
         )
     logger.debug(f"Paper trade stored to DB for session {session_id}")
@@ -188,14 +330,56 @@ def _fetch_paper_trades_file(run_id: str) -> List[Dict]:
 
 
 def _fetch_paper_trades_db(run_id: str) -> List[Dict]:
-    from utils.db.db_pool import DatabasePool
     from sqlalchemy import text
-
-    pool = DatabasePool()
+    pool = _get_pool()
     with pool.get_session() as session:
         result = session.execute(
-            text("SELECT * FROM trades WHERE run_id = :run_id ORDER BY timestamp"),
+            text("""
+                SELECT * FROM alpacacode.trades
+                WHERE trade_type = 'paper' AND run_id = :run_id
+                ORDER BY entry_time
+            """),
             {"run_id": run_id},
         )
         columns = result.keys()
         return [dict(zip(columns, row)) for row in result.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Validations (DB only)
+# ---------------------------------------------------------------------------
+
+def store_validation(run_id: str, result: Dict):
+    """Store a validation result into alpacacode.validations."""
+    backend = get_storage_backend()
+    if backend != "db":
+        return
+    from sqlalchemy import text
+    pool = _get_pool()
+    with pool.get_session() as session:
+        session.execute(
+            text("""
+                INSERT INTO alpacacode.validations
+                    (run_id, source, status, total_checked, anomalies_found,
+                     anomalies_corrected, iterations_used, corrections, suggestions)
+                VALUES
+                    (:run_id, :source, :status, :total_checked, :anomalies_found,
+                     :anomalies_corrected, :iterations_used, :corrections, :suggestions)
+            """),
+            {
+                "run_id": run_id,
+                "source": result.get("source"),
+                "status": result.get("status"),
+                "total_checked": result.get("total_checked", 0),
+                "anomalies_found": result.get("anomalies_found", 0),
+                "anomalies_corrected": result.get("anomalies_corrected", 0),
+                "iterations_used": result.get("iterations_used", 0),
+                "corrections": json.dumps(
+                    result.get("corrections", []), default=str
+                ),
+                "suggestions": json.dumps(
+                    result.get("suggestions", []), default=str
+                ),
+            },
+        )
+    logger.info(f"Validation stored for run {run_id}: {result.get('status')}")

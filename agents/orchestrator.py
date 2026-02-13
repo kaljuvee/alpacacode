@@ -31,6 +31,7 @@ from agents.shared.state import PortfolioState
 from agents.backtest_agent import BacktestAgent
 from agents.paper_trade_agent import PaperTradeAgent
 from agents.validate_agent import ValidateAgent
+from utils.agent_storage import store_run, update_run, store_validation
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +70,19 @@ class Orchestrator:
         for name in ["backtester", "paper_trader", "validator"]:
             self.state.get_agent(name).set_idle()
 
+        self._mode = None  # set by run_* methods
+        self._config = None
         logger.info(f"Orchestrator initialized. Run ID: {self.run_id}")
 
     def run_backtest(self, config: Dict[str, Any] = None) -> Dict[str, Any]:
         """Run backtesting phase."""
         config = config or {}
+        self._config = config
+        if self._mode is None:
+            self._mode = "backtest"
+            store_run(self.run_id, "backtest",
+                      strategy=config.get("strategy", "buy_the_dip"),
+                      config=config)
         agent_state = self.state.get_agent("backtester")
         agent_state.set_running("parameterized_backtest")
         self.state.mode = "backtest"
@@ -107,6 +116,8 @@ class Orchestrator:
             self.state.backtest_results.append(result)
             self.state.best_config = result.get("best_config")
             self.state.save()
+            if self._mode == "backtest":
+                update_run(self.run_id, "completed", results=result)
 
             best = result.get("best_config", {})
             logger.info(
@@ -119,12 +130,17 @@ class Orchestrator:
         except Exception as e:
             agent_state.set_error(str(e))
             self.state.save()
+            if self._mode == "backtest":
+                update_run(self.run_id, "failed", results={"error": str(e)})
             logger.error(f"Backtest failed: {e}")
             return {"error": str(e)}
 
     def run_validation(self, run_id: str = None, source: str = "backtest",
                        trades: list = None) -> Dict[str, Any]:
         """Run validation phase."""
+        if self._mode is None:
+            self._mode = "validate"
+            store_run(self.run_id, "validate", config={"source_run_id": run_id})
         agent_state = self.state.get_agent("validator")
         agent_state.set_running("trade_validation")
         self.state.mode = "validate"
@@ -153,6 +169,7 @@ class Orchestrator:
             agent_state.iteration_count = result.get("iterations_used", 0)
             self.state.validation_results.append(result)
             self.state.save()
+            store_validation(request.get("run_id", self.run_id), result)
 
             status = result.get("status", "unknown")
             anomalies = result.get("anomalies_found", 0)
@@ -163,17 +180,27 @@ class Orchestrator:
                 for s in result.get("suggestions", []):
                     logger.warning(f"  - {s}")
 
+            if self._mode == "validate":
+                update_run(self.run_id, status, results=result)
             return result
 
         except Exception as e:
             agent_state.set_error(str(e))
             self.state.save()
+            if self._mode == "validate":
+                update_run(self.run_id, "failed", results={"error": str(e)})
             logger.error(f"Validation failed: {e}")
             return {"error": str(e)}
 
     def run_paper_trade(self, config: Dict[str, Any] = None) -> Dict[str, Any]:
         """Run paper trading phase."""
         config = config or {}
+        self._config = config
+        if self._mode is None:
+            self._mode = "paper"
+            store_run(self.run_id, "paper",
+                      strategy=config.get("strategy", "buy_the_dip"),
+                      config=config)
         agent_state = self.state.get_agent("paper_trader")
         agent_state.set_running("paper_trading")
         self.state.mode = "paper_trade"
@@ -214,6 +241,8 @@ class Orchestrator:
             agent_state.set_completed()
             self.state.paper_trade_session = result
             self.state.save()
+            if self._mode == "paper":
+                update_run(self.run_id, "completed", results=result)
 
             logger.info(
                 f"Paper trading complete: {result.get('total_trades', 0)} trades, "
@@ -224,6 +253,8 @@ class Orchestrator:
         except Exception as e:
             agent_state.set_error(str(e))
             self.state.save()
+            if self._mode == "paper":
+                update_run(self.run_id, "failed", results={"error": str(e)})
             logger.error(f"Paper trading failed: {e}")
             return {"error": str(e)}
 
@@ -232,6 +263,11 @@ class Orchestrator:
         Run full cycle: Backtest -> Validate -> Paper Trade -> Validate.
         """
         config = config or {}
+        self._mode = "full"
+        self._config = config
+        store_run(self.run_id, "full",
+                  strategy=config.get("strategy", "buy_the_dip"),
+                  config=config)
         self.state.mode = "full"
         self.state.save()
 
@@ -293,6 +329,9 @@ class Orchestrator:
             "completed_at": self.state.completed_at,
         })
         self.state.save()
+        update_run(self.run_id,
+                   status=results.get("status", "completed"),
+                   results=results)
 
         # Also save results to a report file
         report_path = Path("data") / f"agent_run_{self.run_id}.json"

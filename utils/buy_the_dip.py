@@ -423,9 +423,6 @@ def backtest_buy_the_dip(symbols: List[str], start_date: datetime, end_date: dat
         for symbol in symbols:
             if symbol not in price_data or symbol in active_trades:
                 continue
-            # No same-day re-entry when using intraday exits
-            if intraday_exit and symbol in exited_today:
-                continue
             
             df = price_data[symbol]
             historical = df[df.index <= current_date]

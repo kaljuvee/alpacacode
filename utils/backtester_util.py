@@ -74,10 +74,9 @@ def calculate_metrics(trades_df: pd.DataFrame, initial_capital: float,
     total_trades = len(trades_df)
     win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
     
-    # Calculate annualized return
+    # Calculate annualized return (simple arithmetic annualisation)
     days = (end_date - start_date).days
-    years = days / 365.25
-    annualized_return = ((final_capital / initial_capital) ** (1 / years) - 1) * 100 if years > 0 else 0
+    annualized_return = (total_return * 365.25 / days) if days > 0 else 0
     
     # Calculate max drawdown
     equity_curve = trades_df['capital_after'].values

@@ -186,8 +186,7 @@ help                                      Full reference
 
         while True:
             try:
-                self.console.print("[bold green]>[/bold green] ", end="")
-                user_input = input().strip()
+                user_input = input("> ").strip()
 
                 if not user_input:
                     continue

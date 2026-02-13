@@ -19,5 +19,5 @@ general:
   market_data_source: "massive"  # Options: massive, alpaca, yfinance
   check_order_status_interval: 60  # Seconds between order status checks
   polling_interval: 300  # Seconds between strategy execution checks
-  storage_backend: "file"  # Options: file, db  (file stores JSON locally, db uses PostgreSQL)
+  storage_backend: "db"  # Options: file, db  (file stores JSON locally, db uses PostgreSQL)
 

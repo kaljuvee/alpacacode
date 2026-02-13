@@ -187,6 +187,7 @@ class CommandProcessor:
             f"| Metric | Value |\n|--------|-------|\n"
             f"| Sharpe Ratio | {best.get('sharpe_ratio', 0):.2f} |\n"
             f"| Total Return | {best.get('total_return', 0):.1f}% |\n"
+            f"| Annualized Return | {best.get('annualized_return', 0):.1f}% |\n"
             f"| Total P&L | ${best.get('total_pnl', 0):,.2f} |\n"
             f"| Win Rate | {best.get('win_rate', 0):.1f}% |\n"
             f"| Total Trades | {best.get('total_trades', 0)} |\n"

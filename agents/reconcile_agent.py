@@ -290,8 +290,7 @@ class ReconcileAgent:
                 result = session.execute(
                     text("""
                         SELECT symbol, direction, shares, entry_price, exit_price,
-                               pnl, trade_type, created_at,
-                               metadata->>'order_id' as order_id
+                               pnl, trade_type, created_at, order_id
                         FROM alpacacode.trades
                         WHERE trade_type = 'paper'
                           AND created_at >= :start

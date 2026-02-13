@@ -250,8 +250,9 @@ class Orchestrator:
             self._save_final(results)
             return results
 
-        # Phase 2: Validate backtest
-        val1_result = self.run_validation(source="backtest")
+        # Phase 2: Validate backtest (pass trades directly so validator doesn't need DB)
+        bt_trades = bt_result.get("trades", [])
+        val1_result = self.run_validation(source="backtest", trades=bt_trades)
         results["phases"]["backtest_validation"] = val1_result
         if val1_result.get("status") == "failed":
             logger.warning("Backtest validation failed. Continuing with caution.")

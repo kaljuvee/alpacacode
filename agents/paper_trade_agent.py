@@ -22,6 +22,7 @@ if str(project_root) not in sys.path:
 
 from utils.alpaca_util import AlpacaAPI
 from utils.massive_util import get_historical_data, get_intraday_prices, is_market_open
+from utils.agent_storage import store_paper_trade
 
 logger = logging.getLogger(__name__)
 
@@ -316,41 +317,11 @@ class PaperTradeAgent:
             logger.error(f"Entry cycle error: {e}")
 
     def _store_trade(self, trade: Dict):
-        """Store trade to DB if available."""
+        """Store trade using the configured backend (file or DB)."""
         try:
-            from utils.db.db_pool import DatabasePool
-            from sqlalchemy import text
-
-            pool = DatabasePool()
-            with pool.get_session() as session:
-                session.execute(
-                    text("""
-                        INSERT INTO trades (run_id, session_id, agent, symbol, side, qty,
-                                            price, filled_price, order_id, status, pnl,
-                                            pnl_pct, strategy, notes)
-                        VALUES (:run_id, :session_id, :agent, :symbol, :side, :qty,
-                                :price, :filled_price, :order_id, :status, :pnl,
-                                :pnl_pct, :strategy, :notes)
-                    """),
-                    {
-                        "run_id": self.session_id,
-                        "session_id": self.session_id,
-                        "agent": "paper_trader",
-                        "symbol": trade.get("symbol"),
-                        "side": trade.get("side"),
-                        "qty": trade.get("qty", 0),
-                        "price": trade.get("price") or trade.get("entry_price"),
-                        "filled_price": trade.get("exit_price"),
-                        "order_id": trade.get("order_id"),
-                        "status": "filled",
-                        "pnl": trade.get("pnl"),
-                        "pnl_pct": trade.get("pnl_pct"),
-                        "strategy": "buy_the_dip",
-                        "notes": trade.get("reason", ""),
-                    },
-                )
+            store_paper_trade(self.session_id, trade)
         except Exception as e:
-            logger.warning(f"Could not store trade to DB: {e}")
+            logger.warning(f"Could not store trade: {e}")
 
     def _publish_trade_update(self, trade: Dict):
         """Send trade update to message bus."""

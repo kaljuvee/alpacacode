@@ -25,6 +25,7 @@ class StrategyCLI:
         self._orch = None
         self._bg_task = None
         self._bg_stop = threading.Event()
+        self._suggested_command: str = ""
 
     def _show_trades_table(self):
         """Render trades from DB as a Rich Table."""
@@ -186,7 +187,16 @@ help                                      Full reference
 
         while True:
             try:
+                # Pre-fill suggested command so user can press Enter to accept
+                if self._suggested_command:
+                    def _prefill_hook():
+                        readline.insert_text(self._suggested_command)
+                        readline.redisplay()
+                    readline.set_pre_input_hook(_prefill_hook)
+
                 user_input = input("> ").strip()
+                readline.set_pre_input_hook(None)
+                self._suggested_command = ""
 
                 if not user_input:
                     continue

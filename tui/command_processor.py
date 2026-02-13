@@ -172,9 +172,15 @@ class CommandProcessor:
 
         best = result.get("best_config", {})
         p = best.get("params", {})
+        run_id = result.get('run_id', '')
+
+        # Pre-fill the next prompt with the validate command
+        if hasattr(self.app, '_suggested_command'):
+            self.app._suggested_command = f"agent:validate run-id:{run_id}"
+
         return (
             f"# Backtest Complete\n\n"
-            f"- **Run ID**: `{result.get('run_id', '')}`\n"
+            f"- **Run ID**: `{run_id}`\n"
             f"- **Strategy**: {result.get('strategy')}\n"
             f"- **Variations**: {result.get('total_variations')}\n\n"
             f"## Best Configuration\n\n"
@@ -187,7 +193,7 @@ class CommandProcessor:
             f"| Max Drawdown | {best.get('max_drawdown', 0):.2f}% |\n\n"
             f"**Params**: dip={p.get('dip_threshold')}, "
             f"tp={p.get('take_profit')}, hold={p.get('hold_days')}\n\n"
-            f"Use `agent:validate run-id:{result.get('run_id')}` to validate."
+            f"Press Enter to validate, or type a new command."
         )
 
     # ------------------------------------------------------------------

@@ -110,9 +110,10 @@ class StrategyCLI:
             table.add_column("Mode")
             table.add_column("Strategy")
             table.add_column("Status")
-            table.add_column("Started")
+            table.add_column("Started (ET)")
 
             for r in rows:
+                from utils.tz_util import format_et
                 status = str(r[3] or "")
                 status_style = "green" if status == "completed" else "red" if "fail" in status else "yellow"
                 table.add_row(
@@ -120,7 +121,7 @@ class StrategyCLI:
                     str(r[1] or ""),
                     str(r[2] or "-"),
                     f"[{status_style}]{status}[/{status_style}]",
-                    str(r[4])[:19] if r[4] else "-",
+                    format_et(r[4]) if r[4] else "-",
                 )
 
             self.console.print("\n")
@@ -160,6 +161,9 @@ class StrategyCLI:
 
     async def run(self):
         """Run the CLI interactive loop."""
+        from tui.completer import setup_completer
+        setup_completer()
+
         welcome = Panel.fit(
             "[bold cyan]AlpacaCode CLI[/bold cyan]\n"
             "Backtest, paper trade, and monitor the multi-agent trading system\n\n"
@@ -200,6 +204,10 @@ help                                      Full reference
 
                 if not user_input:
                     continue
+
+                # Strip optional "/" prefix (e.g. /agent:backtest → agent:backtest)
+                if user_input.startswith("/"):
+                    user_input = user_input[1:]
 
                 if user_input.lower() in ['exit', 'quit', 'q']:
                     self.console.print("\n[yellow]Goodbye![/yellow]\n")

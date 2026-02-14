@@ -15,3 +15,4 @@ langchain-core
 pyyaml
 textual
 rich
+python-fasthtml

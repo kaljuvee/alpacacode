@@ -95,6 +95,8 @@ class MarketResearch:
 
     def news(self, ticker=None, limit=10) -> str:
         """Get news for a ticker (or general market news)."""
+        if ticker:
+            ticker = ticker.upper()
         # Source 1: Polygon
         articles = self._news_polygon(ticker, limit)
         if articles:

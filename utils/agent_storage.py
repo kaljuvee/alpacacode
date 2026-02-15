@@ -56,7 +56,7 @@ def _py(val):
 # ---------------------------------------------------------------------------
 
 def store_run(run_id: str, mode: str, strategy: str = None,
-              config: Dict = None):
+              config: Dict = None, strategy_slug: str = None):
     """Insert a new row into alpacacode.runs."""
     backend = get_storage_backend()
     if backend != "db":
@@ -67,9 +67,9 @@ def store_run(run_id: str, mode: str, strategy: str = None,
         session.execute(
             text("""
                 INSERT INTO alpacacode.runs
-                    (run_id, mode, strategy, status, config, started_at)
+                    (run_id, mode, strategy, status, config, started_at, strategy_slug)
                 VALUES
-                    (:run_id, :mode, :strategy, 'running', :config, :started_at)
+                    (:run_id, :mode, :strategy, 'running', :config, :started_at, :strategy_slug)
                 ON CONFLICT (run_id) DO NOTHING
             """),
             {
@@ -78,6 +78,7 @@ def store_run(run_id: str, mode: str, strategy: str = None,
                 "strategy": strategy,
                 "config": json.dumps(config or {}, default=str),
                 "started_at": datetime.now(timezone.utc),
+                "strategy_slug": strategy_slug,
             },
         )
     logger.info(f"Run {run_id} stored (mode={mode})")
@@ -114,11 +115,13 @@ def update_run(run_id: str, status: str, results: Dict = None):
 # ---------------------------------------------------------------------------
 
 def store_backtest_results(run_id: str, best: Dict, all_results: List[Dict],
-                           trades: Optional[List[Dict]] = None):
+                           trades: Optional[List[Dict]] = None,
+                           strategy: str = None, lookback: str = None):
     """Store backtest results using the configured backend."""
     backend = get_storage_backend()
     if backend == "db":
-        _store_backtest_db(run_id, best, all_results, trades)
+        _store_backtest_db(run_id, best, all_results, trades,
+                           strategy=strategy, lookback=lookback)
     else:
         _store_backtest_file(run_id, best, all_results, trades)
 
@@ -139,26 +142,40 @@ def _store_backtest_file(run_id: str, best: Dict, all_results: List[Dict],
 
 
 def _store_backtest_db(run_id: str, best: Dict, all_results: List[Dict],
-                       trades: Optional[List[Dict]] = None):
+                       trades: Optional[List[Dict]] = None,
+                       strategy: str = None, lookback: str = None):
     """Write backtest summaries + trades into the alpacacode schema."""
     from sqlalchemy import text
     pool = _get_pool()
+
+    # Build slugs for each variation and identify the best slug
+    best_slug = None
+    if strategy:
+        from utils.strategy_slug import build_slug
 
     with pool.get_session() as session:
         # --- backtest_summaries ---
         for idx, variation in enumerate(all_results):
             is_best = (variation == best)
             params = variation.get("params", {})
+
+            # Build per-variation slug
+            slug = None
+            if strategy:
+                slug = build_slug(strategy, params, lookback or "")
+            if is_best:
+                best_slug = slug
+
             session.execute(
                 text("""
                     INSERT INTO alpacacode.backtest_summaries
                         (run_id, variation_index, params, total_return, total_pnl,
                          win_rate, total_trades, sharpe_ratio, max_drawdown,
-                         annualized_return, is_best)
+                         annualized_return, is_best, strategy_slug)
                     VALUES
                         (:run_id, :idx, :params, :total_return, :total_pnl,
                          :win_rate, :total_trades, :sharpe_ratio, :max_drawdown,
-                         :annualized_return, :is_best)
+                         :annualized_return, :is_best, :strategy_slug)
                 """),
                 {
                     "run_id": run_id,
@@ -172,7 +189,19 @@ def _store_backtest_db(run_id: str, best: Dict, all_results: List[Dict],
                     "max_drawdown": _py(variation.get("max_drawdown")),
                     "annualized_return": _py(variation.get("annualized_return")),
                     "is_best": is_best,
+                    "strategy_slug": slug,
                 },
+            )
+
+        # Update runs.strategy_slug with the best variation's slug
+        if best_slug:
+            session.execute(
+                text("""
+                    UPDATE alpacacode.runs
+                    SET strategy_slug = :slug
+                    WHERE run_id = :run_id
+                """),
+                {"run_id": run_id, "slug": best_slug},
             )
 
         # --- trades (trade_type='backtest') ---

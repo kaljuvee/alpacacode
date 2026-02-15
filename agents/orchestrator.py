@@ -33,6 +33,7 @@ from agents.paper_trade_agent import PaperTradeAgent
 from agents.validate_agent import ValidateAgent
 from agents.reconcile_agent import ReconcileAgent
 from utils.agent_storage import store_run, update_run, store_validation
+from utils.strategy_slug import build_slug
 
 logger = logging.getLogger(__name__)
 
@@ -210,9 +211,18 @@ class Orchestrator:
         if self._mode is None:
             self._mode = "paper"
             self.state.mode = "paper"
+            # Build slug from best config params or paper config
+            best = self.state.best_config or {}
+            paper_params = best.get("params", {})
+            paper_slug = build_slug(
+                config.get("strategy", "buy_the_dip"),
+                paper_params,
+                config.get("lookback", ""),
+            ) if paper_params else None
             store_run(self.run_id, "paper",
                       strategy=config.get("strategy", "buy_the_dip"),
-                      config=config)
+                      config=config,
+                      strategy_slug=paper_slug)
         agent_state = self.state.get_agent("paper_trader")
         agent_state.set_running("paper_trading")
         self.state.save()

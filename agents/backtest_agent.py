@@ -137,7 +137,9 @@ class BacktestAgent:
         best = max(results, key=lambda r: r.get("sharpe_ratio", 0)) if results else {}
 
         # Store results to DB if available
-        self._store_results(run_id, best, results)
+        lookback = request.get("lookback", "3m")
+        self._store_results(run_id, best, results,
+                            strategy=strategy, lookback=lookback)
 
         best_trades = best.get("trades", [])
 
@@ -326,10 +328,12 @@ class BacktestAgent:
             logger.error(f"VIX backtest failed: {e}")
             return [{"run_id": run_id, "error": str(e), "sharpe_ratio": 0}]
 
-    def _store_results(self, run_id: str, best: Dict, all_results: List[Dict]):
+    def _store_results(self, run_id: str, best: Dict, all_results: List[Dict],
+                        strategy: str = None, lookback: str = None):
         """Store backtest results using the configured backend (file or DB)."""
         try:
             best_trades = best.get("trades", [])
-            store_backtest_results(run_id, best, all_results, best_trades)
+            store_backtest_results(run_id, best, all_results, best_trades,
+                                   strategy=strategy, lookback=lookback)
         except Exception as e:
             logger.warning(f"Could not store results: {e}")

@@ -180,14 +180,16 @@ class CommandProcessor:
             return self._agent_trades(params)
         elif subcmd == "agent:report":
             return self._agent_report(params)
+        elif subcmd == "agent:top":
+            return self._agent_top(params)
         elif subcmd == "agent:stop":
             return self._agent_stop()
         else:
             return (
                 f"# Unknown Agent Command\n\n`{subcmd}` is not recognized.\n\n"
                 "Available: `agent:backtest`, `agent:validate`, `agent:paper`, "
-                "`agent:full`, `agent:reconcile`, `agent:report`, `agent:status`, "
-                "`agent:runs`, `agent:trades`, `agent:stop`"
+                "`agent:full`, `agent:reconcile`, `agent:report`, `agent:top`, "
+                "`agent:status`, `agent:runs`, `agent:trades`, `agent:stop`"
             )
 
     def _parse_kv_params(self, parts: list) -> Dict[str, str]:
@@ -705,6 +707,8 @@ class CommandProcessor:
                 md += "| Metric | Value |\n|--------|-------|\n"
                 md += f"| Mode | {data['mode']} |\n"
                 md += f"| Strategy | {data['strategy'] or '-'} |\n"
+                if data.get("strategy_slug"):
+                    md += f"| Strategy Slug | `{data['strategy_slug']}` |\n"
                 md += f"| Status | {data['status']} |\n"
                 md += f"| Data Period | {ds} → {de} |\n"
                 md += f"| Run Date | {rd} |\n"
@@ -721,15 +725,28 @@ class CommandProcessor:
 
             # Summary mode: list of runs
             trade_type = params.get("type")
+            strategy_filter = params.get("strategy")
             limit = int(params.get("limit", "10"))
             rows = agent.summary(trade_type=trade_type, limit=limit)
 
-            if not rows:
-                return "# Performance Summary\n\nNo runs found."
+            # Filter by strategy slug prefix if provided
+            if strategy_filter:
+                rows = [r for r in rows
+                        if r.get("strategy_slug") and
+                        r["strategy_slug"].startswith(strategy_filter)]
 
-            md = "# Performance Summary\n\n"
-            md += "| Run | Period | Ran | Cap | P&L | Ret | Ann | Sharpe | # | Status |\n"
-            md += "|-----|--------|-----|-----|-----|-----|-----|--------|---|--------|\n"
+            if not rows:
+                msg = "# Performance Summary\n\nNo runs found."
+                if strategy_filter:
+                    msg += f" (filter: `{strategy_filter}`)"
+                return msg
+
+            md = "# Performance Summary"
+            if strategy_filter:
+                md += f" (filter: `{strategy_filter}`)"
+            md += "\n\n"
+            md += "| Run | Slug | Period | Ran | Cap | P&L | Ret | Ann | Sharpe | # | Status |\n"
+            md += "|-----|------|--------|-----|-----|-----|-----|-----|--------|---|--------|\n"
             for r in rows:
                 short_id = str(r["run_id"])[:6]
                 ds = format_et(r["data_start"], "%m/%d") if r.get("data_start") else "-"
@@ -743,13 +760,61 @@ class CommandProcessor:
                 ret_str = f"{r['total_return']:.1f}%"
                 ann_str = f"{r['annualized_return']:.0f}%" if r["annualized_return"] else "-"
                 sharpe_str = f"{r['sharpe_ratio']:.2f}" if r["sharpe_ratio"] else "-"
+                slug_str = r.get('strategy_slug') or '-'
                 md += (
-                    f"| `{short_id}` | {period} | {rd} | {cap_str} | "
+                    f"| `{short_id}` | {slug_str} | {period} | {rd} | {cap_str} | "
                     f"{pnl_str} | {ret_str} | {ann_str} | {sharpe_str} | "
                     f"{r['total_trades']} | {r['status']} |\n"
                 )
 
             md += f"\n*{len(rows)} runs shown*"
+            return md
+
+        except Exception as e:
+            return f"# Error\n\n```\n{e}\n```"
+
+    # ------------------------------------------------------------------
+    # agent:top
+    # ------------------------------------------------------------------
+
+    def _agent_top(self, params: Dict) -> str:
+        """Rank strategy slugs by average Sharpe ratio."""
+        try:
+            from agents.report_agent import ReportAgent
+
+            agent = ReportAgent()
+            strategy = params.get("strategy")
+            limit = int(params.get("limit", "20"))
+            rows = agent.top_strategies(strategy=strategy, limit=limit)
+
+            if not rows:
+                msg = "# Top Strategies\n\nNo strategy slugs found."
+                if strategy:
+                    msg += f" (filter: `{strategy}`)"
+                return msg
+
+            md = "# Top Strategies"
+            if strategy:
+                md += f" (filter: `{strategy}`)"
+            md += "\n\n"
+            md += "| # | Strategy Slug | Avg Sharpe | Avg Ret | Avg Ann | Win% | Avg DD | Avg P&L | Trades | Runs |\n"
+            md += "|---|---------------|------------|---------|---------|------|--------|---------|--------|------|\n"
+            for i, r in enumerate(rows, 1):
+                pnl = r['avg_pnl']
+                pnl_str = f"${pnl / 1000:.1f}k" if abs(pnl) >= 1000 else f"${pnl:.0f}"
+                md += (
+                    f"| {i} | `{r['strategy_slug']}` | "
+                    f"{r['avg_sharpe']:.2f} | "
+                    f"{r['avg_return']:.1f}% | "
+                    f"{r['avg_ann_return']:.0f}% | "
+                    f"{r['avg_win_rate']:.0f}% | "
+                    f"{r['avg_drawdown']:.1f}% | "
+                    f"{pnl_str} | "
+                    f"{r['total_trades']} | "
+                    f"{r['total_runs']} |\n"
+                )
+
+            md += f"\n*{len(rows)} strategies shown*"
             return md
 
         except Exception as e:
@@ -824,6 +889,9 @@ class CommandProcessor:
         col2.add_row("trades / runs", "DB tables")
         col2.add_row("agent:report", "performance summary")
         col2.add_row("  type:backtest run-id:<uuid>", "filter / detail")
+        col2.add_row("  strategy:btd", "filter by slug prefix")
+        col2.add_row("agent:top", "rank strategies by Sharpe")
+        col2.add_row("  strategy:btd", "filter by slug prefix")
         col2.add_row("agent:status", "agent states")
 
         # --- Column 3: Research & Options ---

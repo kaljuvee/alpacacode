@@ -1,0 +1,10 @@
+.venv/
+.env
+data/
+.git/
+__pycache__/
+tests/
+*.log
+.claude/
+backtest-results/
+reports/

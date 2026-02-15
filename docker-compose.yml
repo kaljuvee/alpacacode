@@ -1,0 +1,16 @@
+services:
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    ports:
+      - "8501:8501"
+    env_file: .env
+
+  fasthtml:
+    build:
+      context: .
+      dockerfile: Dockerfile.fasthtml
+    ports:
+      - "5002:5002"
+    env_file: .env

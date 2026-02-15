@@ -1,71 +1,37 @@
 #!/bin/bash
-set -euo pipefail
+# AlpacaCode — Termux installer
+# Usage: curl -fsSL https://api.alpacacode.dev/install.sh | bash
+set -e
 
-# AlpacaCode installer
-# Usage: curl -fsSL https://cli.alpacacode.dev/install.sh | bash
+echo "==> Installing AlpacaCode..."
 
-REPO="https://github.com/kaljuvee/alpacacode.git"
-INSTALL_DIR="$HOME/.alpacacode"
-BIN_DIR="$HOME/.local/bin"
+# Install deps (Termux has Python built-in)
+pip install --quiet requests rich 2>/dev/null || pip install requests rich
 
-echo "==> AlpacaCode installer"
+# Download client
+DEST="$HOME/.alpacacode"
+mkdir -p "$DEST"
+curl -fsSL https://raw.githubusercontent.com/kaljuvee/alpacacode/main/ac.py -o "$DEST/ac.py"
 
-# Check Python version
-if ! command -v python3.13 &>/dev/null; then
-    if command -v python3 &>/dev/null; then
-        PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.minor}")')
-        if [ "$PY_VER" -lt 13 ]; then
-            echo "Error: Python 3.13+ is required (found 3.$PY_VER)"
-            exit 1
-        fi
-        PYTHON=python3
-    else
-        echo "Error: Python 3.13+ is required"
-        exit 1
-    fi
-else
-    PYTHON=python3.13
-fi
-
-echo "==> Using $($PYTHON --version)"
-
-# Clone or update
-if [ -d "$INSTALL_DIR" ]; then
-    echo "==> Updating existing installation..."
-    cd "$INSTALL_DIR" && git pull --ff-only
-else
-    echo "==> Cloning repository..."
-    git clone "$REPO" "$INSTALL_DIR"
-fi
-
-cd "$INSTALL_DIR"
-
-# Create virtualenv
-if [ ! -d ".venv" ]; then
-    echo "==> Creating virtual environment..."
-    $PYTHON -m venv .venv
-fi
-
-echo "==> Installing dependencies..."
-.venv/bin/pip install -q -r requirements.txt
-
-# Create .env from example if missing
-if [ ! -f ".env" ]; then
-    cp .env.example .env
-    echo "==> Created .env from .env.example — edit with your API keys"
-fi
-
-# Symlink to PATH
-mkdir -p "$BIN_DIR"
-cat > "$BIN_DIR/alpacacode" << 'WRAPPER'
+# Create wrapper in ~/bin
+mkdir -p "$HOME/bin"
+cat > "$HOME/bin/ac" << 'WRAPPER'
 #!/bin/bash
-cd "$HOME/.alpacacode" && .venv/bin/python alpaca_code.py "$@"
+exec python "$HOME/.alpacacode/ac.py" "$@"
 WRAPPER
-chmod +x "$BIN_DIR/alpacacode"
+chmod +x "$HOME/bin/ac"
+
+# Ensure ~/bin is on PATH
+if ! echo "$PATH" | grep -q "$HOME/bin"; then
+    echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.bashrc"
+    export PATH="$HOME/bin:$PATH"
+fi
 
 echo ""
-echo "==> AlpacaCode installed!"
-echo "    Edit ~/.alpacacode/.env with your API keys, then run:"
-echo "    alpacacode"
+echo "==> Installed! Run:"
 echo ""
-echo "    (Make sure ~/.local/bin is in your PATH)"
+echo "    ac"
+echo ""
+echo "    # or connect to a custom server:"
+echo "    ac -s http://your-server:5001"
+echo ""

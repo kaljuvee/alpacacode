@@ -6,9 +6,9 @@ Talks to the AlpacaCode API server over HTTPS.
 Dependencies: requests, rich (no DB drivers, no alpaca-py, no pandas/numpy)
 
 Usage:
-    python mobile_client.py
-    python mobile_client.py --server http://localhost:5001
-    ALPACACODE_API=http://localhost:5001 python mobile_client.py
+    python ac.py
+    python ac.py --server http://localhost:5001
+    ALPACACODE_API=http://localhost:5001 python ac.py
 """
 import argparse
 import os

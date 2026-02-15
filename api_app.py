@@ -169,18 +169,18 @@ async def status():
     return await _run_command("agent:status")
 
 # ---------------------------------------------------------------------------
-# Serve install-mobile.sh
+# Serve install.sh
 # ---------------------------------------------------------------------------
 
-@app.get("/install-mobile.sh")
-async def install_mobile_sh():
-    script_path = Path(__file__).parent / "install-mobile.sh"
+@app.get("/install.sh")
+async def install_sh():
+    script_path = Path(__file__).parent / "install.sh"
     if script_path.exists():
         content = script_path.read_text()
     else:
-        content = "#!/bin/bash\necho 'install-mobile.sh not found on server'\nexit 1\n"
+        content = "#!/bin/bash\necho 'install.sh not found on server'\nexit 1\n"
     return PlainTextResponse(content, media_type="text/plain",
-                             headers={"Content-Disposition": "attachment; filename=install-mobile.sh"})
+                             headers={"Content-Disposition": "attachment; filename=install.sh"})
 
 # ---------------------------------------------------------------------------
 # Main

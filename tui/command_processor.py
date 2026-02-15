@@ -739,6 +739,8 @@ class CommandProcessor:
         col2.add_row("", "")
         col2.add_row("[bold white]Query & Monitor[/bold white]", "")
         col2.add_row("trades / runs", "DB tables")
+        col2.add_row("agent:report", "performance summary")
+        col2.add_row("  type:backtest run-id:<uuid>", "filter / detail")
         col2.add_row("agent:status", "agent states")
 
         # --- Column 3: Options & params ---

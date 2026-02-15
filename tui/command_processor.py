@@ -655,23 +655,24 @@ class CommandProcessor:
                 return "# Performance Summary\n\nNo runs found."
 
             md = "# Performance Summary\n\n"
-            md += "| Run ID | Mode | Strategy | Period | Run Date | Capital | P&L | Return | Ann. Ret | Sharpe | Trades | Status |\n"
-            md += "|--------|------|----------|--------|----------|---------|-----|--------|----------|--------|--------|--------|\n"
+            md += "| Run | Period | Ran | Cap | P&L | Ret | Ann | Sharpe | # | Status |\n"
+            md += "|-----|--------|-----|-----|-----|-----|-----|--------|---|--------|\n"
             for r in rows:
-                short_id = str(r["run_id"])[:8]
+                short_id = str(r["run_id"])[:6]
                 ds = format_et(r["data_start"], "%m/%d") if r.get("data_start") else "-"
                 de = format_et(r["data_end"], "%m/%d") if r.get("data_end") else "-"
                 period = f"{ds}-{de}" if ds != "-" else "-"
-                rd = format_et(r["run_date"], "%m/%d %H:%M") if r.get("run_date") else "-"
-                cap_str = f"${r['initial_capital']:,.0f}"
-                pnl_str = f"${r['total_pnl']:,.2f}"
+                rd = format_et(r["run_date"], "%m/%d") if r.get("run_date") else "-"
+                cap = r['initial_capital']
+                cap_str = f"${cap / 1000:.0f}k" if cap >= 1000 else f"${cap:.0f}"
+                pnl = r['total_pnl']
+                pnl_str = f"${pnl / 1000:.1f}k" if abs(pnl) >= 1000 else f"${pnl:.0f}"
                 ret_str = f"{r['total_return']:.1f}%"
-                ann_str = f"{r['annualized_return']:.1f}%" if r["annualized_return"] else "-"
+                ann_str = f"{r['annualized_return']:.0f}%" if r["annualized_return"] else "-"
                 sharpe_str = f"{r['sharpe_ratio']:.2f}" if r["sharpe_ratio"] else "-"
                 md += (
-                    f"| `{short_id}` | {r['mode']} | {r['strategy'] or '-'} | "
-                    f"{period} | {rd} | {cap_str} | {pnl_str} | {ret_str} | "
-                    f"{ann_str} | {sharpe_str} | "
+                    f"| `{short_id}` | {period} | {rd} | {cap_str} | "
+                    f"{pnl_str} | {ret_str} | {ann_str} | {sharpe_str} | "
                     f"{r['total_trades']} | {r['status']} |\n"
                 )
 

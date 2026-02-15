@@ -259,6 +259,7 @@ def _nav(session):
     """Build the top navigation bar."""
     user = session.get("user") if session else None
     links = [
+        A("Dashboard", href="https://app.alpacacode.dev", target="_blank"),
         A("Download", href="/download"),
         A("Screenshots", href="/screenshots"),
     ]

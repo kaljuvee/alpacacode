@@ -93,24 +93,38 @@ class MarketResearch:
     # 1. news
     # ------------------------------------------------------------------
 
-    def news(self, ticker=None, limit=10) -> str:
-        """Get news for a ticker (or general market news)."""
+    def news(self, ticker=None, limit=10, provider=None) -> str:
+        """Get news for a ticker (or general market news).
+
+        Args:
+            provider: Force a specific provider ("polygon", "xai", "tavily").
+                      If None, tries Polygon → XAI → Tavily in order.
+        """
         if ticker:
             ticker = ticker.upper()
-        # Source 1: Polygon
-        articles = self._news_polygon(ticker, limit)
-        if articles:
-            return self._format_news(ticker, articles)
 
-        # Source 2: XAI Grok
-        articles = self._news_xai(ticker, limit)
-        if articles:
-            return self._format_news(ticker, articles, provider="XAI Grok")
+        # Map of provider → (fetch_fn, display_name)
+        providers = [
+            ("polygon", self._news_polygon, "Polygon"),
+            ("xai", self._news_xai, "XAI Grok"),
+            ("tavily", self._news_tavily, "Tavily"),
+        ]
 
-        # Source 3: Tavily
-        articles = self._news_tavily(ticker, limit)
-        if articles:
-            return self._format_news(ticker, articles, provider="Tavily")
+        # If a specific provider is requested, try only that one
+        if provider:
+            for key, fetch_fn, display in providers:
+                if key == provider.lower():
+                    articles = fetch_fn(ticker, limit)
+                    if articles:
+                        return self._format_news(ticker, articles, provider=display)
+                    return f"# News{f': {ticker}' if ticker else ''}\n\nNo results from {display}."
+            return f"# News\n\nUnknown provider: `{provider}`. Use `polygon`, `xai`, or `tavily`."
+
+        # Default: try all in order
+        for key, fetch_fn, display in providers:
+            articles = fetch_fn(ticker, limit)
+            if articles:
+                return self._format_news(ticker, articles, provider=display)
 
         return f"# News{f': {ticker}' if ticker else ''}\n\nNo news found."
 

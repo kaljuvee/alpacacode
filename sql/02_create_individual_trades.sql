@@ -3,10 +3,10 @@
 
 CREATE TABLE IF NOT EXISTS individual_trades (
     id SERIAL PRIMARY KEY,
-    published_date TIMESTAMP NOT NULL,
+    published_date TIMESTAMPTZ NOT NULL,
     market VARCHAR(50) DEFAULT 'US',
-    entry_time TIMESTAMP NOT NULL,
-    exit_time TIMESTAMP NOT NULL,
+    entry_time TIMESTAMPTZ NOT NULL,
+    exit_time TIMESTAMPTZ NOT NULL,
     ticker VARCHAR(20) NOT NULL,
     direction VARCHAR(10) NOT NULL CHECK (direction IN ('long', 'short')),
     shares INTEGER NOT NULL DEFAULT 1,
@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS individual_trades (
     news_event VARCHAR(255),
     link TEXT,
     runid VARCHAR(255) NOT NULL,
-    rundate TIMESTAMP NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    rundate TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     news_id INTEGER,
     agent VARCHAR(100) DEFAULT 'manus'
 );

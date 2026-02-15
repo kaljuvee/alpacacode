@@ -6,6 +6,7 @@ Trade based on market volatility - buy when fear is high
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+from utils.tz_util import format_et, now_et
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import sys
@@ -310,8 +311,8 @@ if st.button("🚀 Run VIX Strategy Backtest", type="primary", use_container_wid
             
             # Format trades dataframe for display
             display_df = trades_df.copy()
-            display_df['entry_time'] = pd.to_datetime(display_df['entry_time']).dt.strftime('%Y-%m-%d %H:%M')
-            display_df['exit_time'] = pd.to_datetime(display_df['exit_time']).dt.strftime('%Y-%m-%d %H:%M')
+            display_df['entry_time'] = pd.to_datetime(display_df['entry_time']).apply(format_et)
+            display_df['exit_time'] = pd.to_datetime(display_df['exit_time']).apply(format_et)
             display_df['pnl'] = display_df['pnl'].apply(lambda x: f"${x:,.2f}")
             display_df['pnl_pct'] = display_df['pnl_pct'].apply(lambda x: f"{x:.2f}%")
             display_df['entry_price'] = display_df['entry_price'].apply(lambda x: f"${x:.2f}")
@@ -338,7 +339,7 @@ if st.button("🚀 Run VIX Strategy Backtest", type="primary", use_container_wid
             st.download_button(
                 label="📥 Download Trade History (CSV)",
                 data=csv,
-                file_name=f"vix_strategy_trades_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"vix_strategy_trades_{now_et().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
             )
             

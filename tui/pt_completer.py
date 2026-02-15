@@ -37,6 +37,8 @@ TEMPLATES = [
     ("news TSLA",                                          "Tesla news"),
     ("news AAPL",                                          "Apple news"),
     ("news",                                               "general market news"),
+    ("news TSLA provider:xai",                             "Tesla news via XAI Grok"),
+    ("news TSLA provider:tavily",                          "Tesla news via Tavily"),
     ("profile TSLA",                                       "Tesla company profile"),
     ("profile AAPL",                                       "Apple company profile"),
     ("financials AAPL",                                    "Apple financials (annual)"),

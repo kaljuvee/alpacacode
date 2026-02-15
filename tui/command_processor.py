@@ -113,7 +113,8 @@ class CommandProcessor:
         try:
             if cmd == "news":
                 limit = int(params.get("limit", "10"))
-                return await asyncio.to_thread(research.news, ticker, limit)
+                prov = params.get("provider")
+                return await asyncio.to_thread(research.news, ticker, limit, prov)
             elif cmd == "profile":
                 if not ticker:
                     return "# Error\n\nUsage: `profile TSLA`"

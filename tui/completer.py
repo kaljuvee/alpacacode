@@ -51,7 +51,7 @@ COMMANDS = {
     "agent:runs": {},
     "agent:trades": {"run-id": None, "type": ["backtest", "paper_trade"], "limit": None},
     "agent:stop": {},
-    "news": {"limit": ["5", "10", "20"]},
+    "news": {"limit": ["5", "10", "20"], "provider": ["polygon", "xai", "tavily"]},
     "profile": {},
     "financials": {"period": ["annual", "quarterly"]},
     "price": {},

@@ -1,16 +1,35 @@
 """FastHTML web shell for AlpacaCode — browser-based CLI."""
+import os
 import sys
 from pathlib import Path
 
 # Ensure project root is importable
 sys.path.insert(0, str(Path(__file__).parent.absolute()))
 
+from dotenv import load_dotenv
 from fasthtml.common import *
 from tui.command_processor import CommandProcessor
 from tui.strategy_cli import StrategyCLI
 
+load_dotenv()
+
 # Singleton state container (persists across requests)
 cli = StrategyCLI()
+
+# ---------------------------------------------------------------------------
+# Google OAuth setup (optional — gracefully skip if no creds)
+# ---------------------------------------------------------------------------
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+_oauth_enabled = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+
+if _oauth_enabled:
+    from fasthtml.oauth import GoogleAppClient, redir_url
+
+FREE_QUERY_LIMIT = 5
+# Commands that don't count toward the free query limit
+_FREE_COMMANDS = {"help", "h", "?", "clear", "cls", "exit", "quit", "q", "status"}
 
 # ---------------------------------------------------------------------------
 # Custom CSS & JS
@@ -37,6 +56,45 @@ main { max-width: 960px; margin: 0 auto; padding: 1rem; display: flex; flex-dire
 .help-grid dd { color: var(--pico-muted-color); margin: 0 0 0 0.5rem; font-size: 0.85em; }
 .htmx-request .htmx-indicator { display: inline; }
 .htmx-indicator { display: none; }
+
+/* Nav bar */
+nav.top-nav { display: flex; align-items: center; justify-content: space-between;
+              padding: 0.5rem 0; margin-bottom: 0.5rem;
+              border-bottom: 1px solid var(--pico-muted-border-color); }
+nav.top-nav .nav-brand { font-weight: bold; font-size: 1.1em; color: var(--pico-primary); text-decoration: none; }
+nav.top-nav .nav-links { display: flex; gap: 1rem; align-items: center; font-size: 0.85em; }
+nav.top-nav .nav-links a { color: var(--pico-muted-color); text-decoration: none; }
+nav.top-nav .nav-links a:hover { color: var(--pico-primary); }
+
+/* Query badge */
+.query-badge { font-size: 0.75em; color: var(--pico-muted-color);
+               background: var(--pico-card-background-color); padding: 0.15rem 0.5rem;
+               border-radius: 0.25rem; border: 1px solid var(--pico-muted-border-color); }
+
+/* Sign-in prompt */
+.signin-card { text-align: center; padding: 2rem; margin: 1rem 0;
+               border: 1px solid var(--pico-muted-border-color); border-radius: 0.5rem;
+               background: var(--pico-card-background-color); }
+.signin-card h4 { margin-bottom: 0.5rem; }
+.signin-card p { color: var(--pico-muted-color); margin-bottom: 1rem; }
+.signin-card a { display: inline-block; padding: 0.5rem 1.5rem;
+                 background: var(--pico-primary); color: #fff; border-radius: 0.25rem;
+                 text-decoration: none; font-weight: 600; }
+
+/* Screenshot gallery */
+.screenshot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem; }
+@media (max-width: 768px) { .screenshot-grid { grid-template-columns: 1fr; } }
+.screenshot-grid figure { margin: 0; }
+.screenshot-grid img { width: 100%; border-radius: 0.5rem; border: 1px solid var(--pico-muted-border-color); }
+.screenshot-grid figcaption { color: var(--pico-muted-color); font-size: 0.85em; margin-top: 0.3rem; text-align: center; }
+
+/* Download page */
+.dl-page { max-width: 700px; margin: 0 auto; }
+.dl-page pre { position: relative; }
+.copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; background: var(--pico-primary);
+            color: #fff; border: none; padding: 0.25rem 0.75rem; border-radius: 0.25rem;
+            cursor: pointer; font-size: 0.8em; }
+.copy-btn:hover { opacity: 0.85; }
 """)
 
 _js = Script("""
@@ -144,20 +202,71 @@ def _help_html():
 
 
 # ---------------------------------------------------------------------------
+# Nav bar helper
+# ---------------------------------------------------------------------------
+
+def _nav(session):
+    """Build the top navigation bar."""
+    user = session.get("user") if session else None
+    links = [
+        A("Download", href="/download"),
+        A("Screenshots", href="/screenshots"),
+    ]
+    if user:
+        links.append(Span(user.get("email", "user"), style="color: var(--pico-color);"))
+        links.append(A("Logout", href="/logout"))
+    elif _oauth_enabled:
+        links.append(A("Sign in", href="/login"))
+    return Nav(
+        A("AlpacaCode", href="/", cls="nav-brand"),
+        Div(*links, cls="nav-links"),
+        cls="top-nav",
+    )
+
+
+def _query_badge(session):
+    """Show remaining free queries for anonymous users."""
+    user = session.get("user") if session else None
+    if user:
+        return ""
+    count = session.get("query_count", 0) if session else 0
+    remaining = max(0, FREE_QUERY_LIMIT - count)
+    return Span(f"{remaining} free queries remaining", cls="query-badge")
+
+
+def _signin_prompt():
+    """Card shown when free query limit is reached."""
+    parts = [
+        H4("Free query limit reached"),
+        P(f"You've used all {FREE_QUERY_LIMIT} free queries."),
+    ]
+    if _oauth_enabled:
+        parts.append(P("Sign in with Google for unlimited access."))
+        parts.append(A("Sign in with Google", href="/login"))
+    else:
+        parts.append(P("Authentication is not configured on this instance."))
+    return Div(*parts, cls="signin-card")
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
 
 @rt("/")
-def get():
+def get(session):
     return (
         Title("AlpacaCode"),
         Main(
-            H3("AlpacaCode"),
-            Div(id="output"),
+            _nav(session),
+            Div(
+                _query_badge(session),
+                style="text-align: right; margin-bottom: 0.5rem;",
+            ),
+            Div(_help_html(), id="output"),
             Form(
                 Input(type="text", name="command",
-                      placeholder="Type a command... (try 'help')",
+                      placeholder="Type a command...",
                       autofocus=True, autocomplete="off"),
                 Button("Run", type="submit"),
                 Span(" Running...", cls="htmx-indicator",
@@ -171,7 +280,7 @@ def get():
 
 
 @rt("/cmd")
-async def post(command: str):
+async def post(command: str, session):
     cmd_lower = command.strip().lower()
 
     if not command.strip():
@@ -189,6 +298,21 @@ async def post(command: str):
             cls="cmd-entry",
         )
     else:
+        # Rate-limit check for anonymous users
+        user = session.get("user")
+        if not user:
+            # Only count non-free commands
+            first_word = cmd_lower.split()[0] if cmd_lower.split() else ""
+            if first_word not in _FREE_COMMANDS:
+                count = session.get("query_count", 0)
+                if count >= FREE_QUERY_LIMIT:
+                    return Div(
+                        P(B(f"> {command}"), cls="cmd-echo"),
+                        _signin_prompt(),
+                        cls="cmd-entry",
+                    )
+                session["query_count"] = count + 1
+
         processor = CommandProcessor(cli)
         result_md = await processor.process_command(command) or ""
 
@@ -196,6 +320,142 @@ async def post(command: str):
         P(B(f"> {command}"), cls="cmd-echo"),
         Div(result_md, cls="marked"),
         cls="cmd-entry",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Google OAuth routes
+# ---------------------------------------------------------------------------
+
+if _oauth_enabled:
+    @rt("/login")
+    def login_get(request):
+        client = GoogleAppClient(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)
+        redirect_uri = redir_url(request, "/auth/callback")
+        login_url = client.login_link(redirect_uri)
+        return RedirectResponse(login_url)
+
+    @rt("/auth/callback")
+    async def auth_callback(request, session, code: str = "", error: str = ""):
+        if error or not code:
+            return RedirectResponse("/")
+        # Create a fresh client per request (thread safety — retr_info stores token on instance)
+        client = GoogleAppClient(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)
+        redirect_uri = redir_url(request, "/auth/callback")
+        info = await client.retr_info_async(code, redirect_uri)
+        session["user"] = {"email": info.get("email", ""), "name": info.get("name", "")}
+        session["query_count"] = 0
+        return RedirectResponse("/")
+
+    @rt("/logout")
+    def logout_get(session):
+        session.pop("user", None)
+        session["query_count"] = 0
+        return RedirectResponse("/")
+else:
+    # Stub routes when OAuth is not configured
+    @rt("/login")
+    def login_get():
+        return RedirectResponse("/")
+
+    @rt("/logout")
+    def logout_get(session):
+        session.pop("user", None)
+        session["query_count"] = 0
+        return RedirectResponse("/")
+
+
+# ---------------------------------------------------------------------------
+# Download page
+# ---------------------------------------------------------------------------
+
+@rt("/download")
+def download_get(session):
+    curl_cmd = "curl -fsSL https://alpacacode.com/install.sh | bash"
+    return (
+        Title("Download — AlpacaCode"),
+        Main(
+            _nav(session),
+            Div(
+                H2("Install AlpacaCode"),
+                P("One-line install (requires Python 3.13+):", style="color: var(--pico-muted-color);"),
+                Div(
+                    Pre(Code(curl_cmd), id="curl-cmd"),
+                    Button("Copy", cls="copy-btn", onclick="navigator.clipboard.writeText(document.getElementById('curl-cmd').textContent)"),
+                    style="position: relative;",
+                ),
+                Hr(),
+                H4("Manual install"),
+                Div("""
+```bash
+git clone https://github.com/kaljuvee/alpacacode.git ~/.alpacacode
+cd ~/.alpacacode
+python3.13 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # edit with your API keys
+python alpaca_code.py
+```
+""", cls="marked"),
+                Hr(),
+                H4("Requirements"),
+                Ul(
+                    Li("Python 3.13+"),
+                    Li("PostgreSQL (for trade history)"),
+                    Li("Alpaca paper trading account"),
+                    Li("Massive (Polygon) API key for market data"),
+                ),
+                cls="dl-page",
+            ),
+        ),
+    )
+
+
+@rt("/install.sh")
+def install_script_get():
+    script_path = Path(__file__).parent / "install.sh"
+    if script_path.exists():
+        content = script_path.read_text()
+    else:
+        content = "#!/bin/bash\necho 'install.sh not found on server'\nexit 1\n"
+    return Response(content, media_type="text/plain",
+                    headers={"Content-Disposition": "attachment; filename=install.sh"})
+
+
+# ---------------------------------------------------------------------------
+# Screenshots page
+# ---------------------------------------------------------------------------
+
+# Screenshots: (filename, caption)
+_SCREENSHOTS = [
+    ("help.png", "Command reference — default landing view"),
+    ("news.png", "News command — company headlines"),
+    ("trades.png", "Trades table — executed trades from DB"),
+    ("backtest.png", "Backtest results — strategy performance"),
+]
+
+
+@rt("/screenshots")
+def screenshots_get(session):
+    static_dir = Path(__file__).parent / "static"
+    figures = []
+    for fname, caption in _SCREENSHOTS:
+        if (static_dir / fname).exists():
+            figures.append(
+                Figure(
+                    Img(src=f"/static/{fname}", alt=caption, loading="lazy"),
+                    Figcaption(caption),
+                )
+            )
+    if not figures:
+        figures.append(P("No screenshots available yet.", style="color: var(--pico-muted-color);"))
+    return (
+        Title("Screenshots — AlpacaCode"),
+        Main(
+            _nav(session),
+            H2("Screenshots"),
+            Div(*figures, cls="screenshot-grid") if len(figures) > 1 or (figures and figures[0].tag == "figure") else Div(*figures),
+        ),
     )
 
 

@@ -28,6 +28,15 @@ main { max-width: 960px; margin: 0 auto; padding: 1rem; display: flex; flex-dire
 #cmd-form { display: flex; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--pico-muted-border-color); }
 #cmd-form input { flex: 1; margin-bottom: 0; }
 #cmd-form button { width: auto; margin-bottom: 0; }
+.help-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; font-size: 0.85em; }
+@media (max-width: 768px) { .help-grid { grid-template-columns: 1fr; } }
+.help-grid h4 { color: var(--pico-primary); margin: 0.8rem 0 0.3rem; font-size: 0.95em; }
+.help-grid h4:first-child { margin-top: 0; }
+.help-grid dl { margin: 0; }
+.help-grid dt { color: #e2c07b; font-size: 0.9em; margin-top: 0.3rem; }
+.help-grid dd { color: var(--pico-muted-color); margin: 0 0 0 0.5rem; font-size: 0.85em; }
+.htmx-request .htmx-indicator { display: inline; }
+.htmx-indicator { display: none; }
 """)
 
 _js = Script("""
@@ -41,57 +50,96 @@ document.addEventListener('htmx:afterRequest', function(evt) {
         evt.detail.elt.querySelector('input').focus();
     }
 });
+// Extend HTMX timeout for long-running commands (backtests)
+document.addEventListener('htmx:configRequest', function(evt) {
+    evt.detail.timeout = 300000;  // 5 minutes
+});
 """)
 
 app, rt = fast_app(hdrs=[_theme, MarkdownJS(), _css, _js])
 
 # ---------------------------------------------------------------------------
-# Static help (Rich help prints to console — not useful for web)
+# Help — 3-column HTML grid (mirrors Rich CLI help layout)
 # ---------------------------------------------------------------------------
 
-HELP_MD = """\
-# AlpacaCode — Command Reference
 
-## Backtest
-| Command | Description |
-|---------|-------------|
-| `agent:backtest lookback:1m` | Run a 1-month backtest |
-| `  symbols:AAPL,TSLA` | Custom symbols |
-| `  hours:extended` | Pre/after-market (4AM-8PM ET) |
-| `  intraday_exit:true` | 5-min bar TP/SL exits |
-| `  pdt:false` | Disable PDT rule (>$25k) |
+def _help_html():
+    """Return a 3-column help grid as FastHTML components."""
 
-## Validate & Reconcile
-| Command | Description |
-|---------|-------------|
-| `agent:validate run-id:<id>` | Validate a backtest run |
-| `  source:paper_trade` | Validate paper trades instead |
-| `agent:reconcile window:14d` | DB vs Alpaca reconciliation |
+    def _section(title, items):
+        """Build an h4 + dl for a help section."""
+        dl_items = []
+        for cmd, desc in items:
+            dl_items.append(Dt(cmd))
+            dl_items.append(Dd(desc))
+        return (H4(title), Dl(*dl_items))
 
-## Paper Trade
-| Command | Description |
-|---------|-------------|
-| `agent:paper duration:7d` | Paper trade in background |
-| `  symbols:AAPL,MSFT poll:60` | Custom config |
-| `  hours:extended` | Extended hours |
-| `  email:false` | Disable daily P&L emails |
-| `  pdt:false` | Disable PDT rule |
+    # Column 1: Backtest, Validate, Reconcile
+    col1 = Div(
+        *_section("Backtest", [
+            ("agent:backtest lookback:1m", "1-month backtest"),
+            ("  symbols:AAPL,TSLA", "custom symbols"),
+            ("  hours:extended", "pre/after-market"),
+            ("  intraday_exit:true", "5-min TP/SL bars"),
+            ("  pdt:false", "disable PDT rule"),
+        ]),
+        *_section("Validate", [
+            ("agent:validate run-id:<uuid>", "validate a run"),
+            ("  source:paper_trade", "validate paper trades"),
+        ]),
+        *_section("Reconcile", [
+            ("agent:reconcile", "DB vs Alpaca (7d)"),
+            ("  window:14d", "custom window"),
+        ]),
+    )
 
-## Full Cycle (Backtest > Validate > Paper > Validate)
-| Command | Description |
-|---------|-------------|
-| `agent:full lookback:1m duration:1m` | Run full cycle |
+    # Column 2: Paper Trade, Full Cycle, Query & Monitor
+    col2 = Div(
+        *_section("Paper Trade", [
+            ("agent:paper duration:7d", "run in background"),
+            ("  symbols:AAPL,MSFT poll:60", "custom config"),
+            ("  hours:extended", "extended hours"),
+            ("  email:false", "disable email reports"),
+            ("  pdt:false", "disable PDT rule"),
+        ]),
+        *_section("Full Cycle", [
+            ("agent:full lookback:1m duration:1m", "BT > Val > PT > Val"),
+            ("  hours:extended", "extended hours"),
+        ]),
+        *_section("Query & Monitor", [
+            ("trades / runs", "DB tables"),
+            ("agent:report", "performance summary"),
+            ("  type:backtest run-id:<uuid>", "filter / detail"),
+            ("agent:status", "agent states"),
+            ("agent:stop", "stop background task"),
+        ]),
+    )
 
-## Query & Monitor
-| Command | Description |
-|---------|-------------|
-| `trades` | Show trades from DB |
-| `runs` | Show runs from DB |
-| `agent:status` | Show agent states |
-| `agent:stop` | Stop background task |
-| `status` | Show current config |
-| `clear` | Clear output |
-"""
+    # Column 3: Options & Parameters
+    col3 = Div(
+        *_section("Options", [
+            ("hours:regular", "9:30AM-4PM ET (default)"),
+            ("hours:extended", "4AM-8PM ET"),
+            ("intraday_exit:true", "5-min bar exits"),
+            ("pdt:false", "disable PDT (>$25k)"),
+            ("email:false", "no daily P&L emails"),
+        ]),
+        *_section("Parameters", [
+            ("lookback:1m|3m|6m|1y", "backtest period"),
+            ("strategy:buy_the_dip", "strategy name"),
+            ("symbols:AAPL,TSLA", "comma-separated"),
+            ("capital:10000", "initial capital"),
+        ]),
+        *_section("General", [
+            ("help / status / clear", ""),
+        ]),
+    )
+
+    return Div(
+        H3("AlpacaCode — Command Reference"),
+        Div(col1, col2, col3, cls="help-grid"),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -110,8 +158,11 @@ def get():
                       placeholder="Type a command... (try 'help')",
                       autofocus=True, autocomplete="off"),
                 Button("Run", type="submit"),
+                Span(" Running...", cls="htmx-indicator",
+                     style="color: var(--pico-muted-color); font-size: 0.85em;"),
                 id="cmd-form",
                 hx_post="/cmd", hx_target="#output", hx_swap="beforeend",
+                hx_indicator=".htmx-indicator",
             ),
         ),
     )
@@ -130,7 +181,11 @@ async def post(command: str):
     elif cmd_lower in ("clear", "cls"):
         return Div(id="output", hx_swap_oob="innerHTML")
     elif cmd_lower in ("help", "h", "?"):
-        result_md = HELP_MD
+        return Div(
+            P(B(f"> {command}"), cls="cmd-echo"),
+            _help_html(),
+            cls="cmd-entry",
+        )
     else:
         processor = CommandProcessor(cli)
         result_md = await processor.process_command(command) or ""

@@ -105,12 +105,12 @@ class MarketResearch:
         # Source 2: XAI Grok
         articles = self._news_xai(ticker, limit)
         if articles:
-            return self._format_news(ticker, articles, source="XAI Grok")
+            return self._format_news(ticker, articles, provider="XAI Grok")
 
         # Source 3: Tavily
         articles = self._news_tavily(ticker, limit)
         if articles:
-            return self._format_news(ticker, articles, source="Tavily")
+            return self._format_news(ticker, articles, provider="Tavily")
 
         return f"# News{f': {ticker}' if ticker else ''}\n\nNo news found."
 
@@ -197,16 +197,15 @@ class MarketResearch:
             logger.debug(f"Tavily news: {e}")
         return None
 
-    def _format_news(self, ticker, articles, source="Polygon"):
+    def _format_news(self, ticker, articles, provider="Polygon"):
         label = f": {ticker.upper()}" if ticker else ""
         md = f"# News{label}\n\n"
-        md += f"*Source: {source}*\n\n"
-        md += "| # | Time | Title | Source |\n|---|------|-------|--------|\n"
+        md += "| # | Time | Title | Source | Provider |\n|---|------|-------|--------|----------|\n"
         for i, a in enumerate(articles, 1):
             title = a["title"][:80]
             if a.get("url"):
                 title = f"[{title}]({a['url']})"
-            md += f"| {i} | {a['time']} | {title} | {a['source']} |\n"
+            md += f"| {i} | {a['time']} | {title} | {a['source']} | {provider} |\n"
         return md
 
     # ------------------------------------------------------------------

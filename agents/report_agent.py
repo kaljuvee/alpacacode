@@ -141,14 +141,17 @@ class ReportAgent:
 
         pool = DatabasePool()
         with pool.get_session() as session:
+            # Support prefix matching (e.g. short IDs like "5acc08ba")
             run_row = session.execute(
                 text("""
                     SELECT run_id, mode, strategy, status,
                            config, started_at, completed_at
                     FROM alpacacode.runs
-                    WHERE run_id = :run_id
+                    WHERE run_id LIKE :prefix
+                    ORDER BY created_at DESC
+                    LIMIT 1
                 """),
-                {"run_id": run_id},
+                {"prefix": run_id + "%"},
             ).fetchone()
 
             if not run_row:

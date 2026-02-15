@@ -16,3 +16,4 @@ pyyaml
 textual
 rich
 python-fasthtml
+httpx

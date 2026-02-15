@@ -569,6 +569,7 @@ _SCREENSHOTS = [
     ("news.png", "News command — company headlines"),
     ("trades.png", "Trades table — executed trades from DB"),
     ("backtest.png", "Backtest results — strategy performance"),
+    ("backtest-streaming.png", "Live log console — real-time backtest streaming"),
 ]
 
 

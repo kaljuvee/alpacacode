@@ -66,6 +66,11 @@ class CommandProcessor:
         elif cmd_lower == "runs":
             return self._agent_runs()
 
+        # Market research commands (positional ticker syntax)
+        research_cmds = ("news", "profile", "financials", "price", "movers", "analysts", "valuation")
+        if cmd_lower.split()[0] in research_cmds:
+            return await self._handle_research_command(user_input)
+
         # Legacy backtest commands
         if cmd_lower.startswith("alpaca:backtest"):
             return await self._handle_backtest(user_input)
@@ -78,6 +83,73 @@ class CommandProcessor:
             f"# Unknown Command\n\nCommand not recognized: `{user_input}`\n\n"
             "Type 'help' for available commands."
         )
+
+    # ------------------------------------------------------------------
+    # Market research command dispatcher
+    # ------------------------------------------------------------------
+
+    async def _handle_research_command(self, user_input: str) -> str:
+        """Dispatch market research commands: news, profile, price, etc."""
+        import asyncio
+        from utils.market_research_util import MarketResearch
+
+        parts = user_input.strip().split()
+        cmd = parts[0].lower()
+        research = MarketResearch()
+
+        # Parse: positional ticker(s) + key:value params
+        tickers = []
+        params = {}
+        for part in parts[1:]:
+            if ":" in part:
+                key, value = part.split(":", 1)
+                params[key.lower()] = value
+            else:
+                # Positional argument — ticker(s) or direction for movers
+                tickers.append(part)
+
+        ticker = tickers[0].upper() if tickers else None
+
+        try:
+            if cmd == "news":
+                limit = int(params.get("limit", "10"))
+                return await asyncio.to_thread(research.news, ticker, limit)
+            elif cmd == "profile":
+                if not ticker:
+                    return "# Error\n\nUsage: `profile TSLA`"
+                return await asyncio.to_thread(research.profile, ticker)
+            elif cmd == "financials":
+                if not ticker:
+                    return "# Error\n\nUsage: `financials AAPL` or `financials AAPL period:quarterly`"
+                period = params.get("period", "annual")
+                return await asyncio.to_thread(research.financials, ticker, period)
+            elif cmd == "price":
+                if not ticker:
+                    return "# Error\n\nUsage: `price TSLA`"
+                return await asyncio.to_thread(research.price, ticker)
+            elif cmd == "movers":
+                direction = "both"
+                if ticker:
+                    d = ticker.lower()
+                    if d in ("gainers", "losers"):
+                        direction = d
+                return await asyncio.to_thread(research.movers, direction)
+            elif cmd == "analysts":
+                if not ticker:
+                    return "# Error\n\nUsage: `analysts AAPL`"
+                return await asyncio.to_thread(research.analysts, ticker)
+            elif cmd == "valuation":
+                if not tickers:
+                    return "# Error\n\nUsage: `valuation AAPL` or `valuation AAPL,MSFT,GOOGL`"
+                # Support both "valuation AAPL,MSFT" and "valuation AAPL MSFT"
+                all_tickers = []
+                for t in tickers:
+                    all_tickers.extend(t.split(","))
+                return await asyncio.to_thread(research.valuation, all_tickers)
+            else:
+                return f"# Error\n\nUnknown research command: `{cmd}`"
+        except Exception as e:
+            return f"# Error\n\n```\n{e}\n```"
 
     # ------------------------------------------------------------------
     # Agent command dispatcher
@@ -753,23 +825,24 @@ class CommandProcessor:
         col2.add_row("  type:backtest run-id:<uuid>", "filter / detail")
         col2.add_row("agent:status", "agent states")
 
-        # --- Column 3: Options & params ---
+        # --- Column 3: Research & Options ---
         col3 = Table(show_header=False, box=None, padding=(0, 1), expand=True)
         col3.add_column(style="bold yellow", no_wrap=True)
         col3.add_column(style="dim")
 
+        col3.add_row("[bold white]Research[/bold white]", "")
+        col3.add_row("news TSLA", "company news")
+        col3.add_row("profile TSLA", "company profile")
+        col3.add_row("financials AAPL", "income & balance sheet")
+        col3.add_row("price TSLA", "quote & technicals")
+        col3.add_row("movers", "top gainers & losers")
+        col3.add_row("analysts AAPL", "ratings & targets")
+        col3.add_row("valuation AAPL,MSFT", "valuation comparison")
+        col3.add_row("", "")
         col3.add_row("[bold white]Options[/bold white]", "")
-        col3.add_row("hours:regular", "9:30AM-4PM ET (default)")
         col3.add_row("hours:extended", "4AM-8PM ET")
         col3.add_row("intraday_exit:true", "5-min bar exits")
         col3.add_row("pdt:false", "disable PDT (>$25k)")
-        col3.add_row("email:false", "no daily P&L emails")
-        col3.add_row("", "")
-        col3.add_row("[bold white]Parameters[/bold white]", "")
-        col3.add_row("lookback:1m|3m|6m|1y", "backtest period")
-        col3.add_row("strategy:buy_the_dip", "strategy name")
-        col3.add_row("symbols:AAPL,TSLA", "comma-separated")
-        col3.add_row("capital:10000", "initial capital")
         col3.add_row("", "")
         col3.add_row("[bold white]General[/bold white]", "")
         col3.add_row("help / status / q", "")

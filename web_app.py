@@ -115,20 +115,21 @@ def _help_html():
         ]),
     )
 
-    # Column 3: Options & Parameters
+    # Column 3: Research & Options
     col3 = Div(
+        *_section("Research", [
+            ("news TSLA", "company news"),
+            ("profile TSLA", "company profile"),
+            ("financials AAPL", "income & balance sheet"),
+            ("price TSLA", "quote & technicals"),
+            ("movers", "top gainers & losers"),
+            ("analysts AAPL", "ratings & targets"),
+            ("valuation AAPL,MSFT", "valuation comparison"),
+        ]),
         *_section("Options", [
-            ("hours:regular", "9:30AM-4PM ET (default)"),
             ("hours:extended", "4AM-8PM ET"),
             ("intraday_exit:true", "5-min bar exits"),
             ("pdt:false", "disable PDT (>$25k)"),
-            ("email:false", "no daily P&L emails"),
-        ]),
-        *_section("Parameters", [
-            ("lookback:1m|3m|6m|1y", "backtest period"),
-            ("strategy:buy_the_dip", "strategy name"),
-            ("symbols:AAPL,TSLA", "comma-separated"),
-            ("capital:10000", "initial capital"),
         ]),
         *_section("General", [
             ("help / status / clear", ""),

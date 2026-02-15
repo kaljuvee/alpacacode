@@ -34,6 +34,22 @@ TEMPLATES = [
     ("trades",                                             "show trades from DB"),
     ("runs",                                               "show runs from DB"),
     ("help",                                               "show help"),
+    ("news TSLA",                                          "Tesla news"),
+    ("news AAPL",                                          "Apple news"),
+    ("news",                                               "general market news"),
+    ("profile TSLA",                                       "Tesla company profile"),
+    ("profile AAPL",                                       "Apple company profile"),
+    ("financials AAPL",                                    "Apple financials (annual)"),
+    ("financials AAPL period:quarterly",                   "Apple quarterly financials"),
+    ("price TSLA",                                         "Tesla price & technicals"),
+    ("price AAPL",                                         "Apple price & technicals"),
+    ("movers",                                             "top gainers & losers"),
+    ("movers gainers",                                     "top gainers only"),
+    ("movers losers",                                      "top losers only"),
+    ("analysts AAPL",                                      "Apple analyst ratings"),
+    ("analysts TSLA",                                      "Tesla analyst ratings"),
+    ("valuation AAPL",                                     "Apple valuation metrics"),
+    ("valuation AAPL,MSFT,GOOGL",                          "compare valuations"),
 ]
 
 

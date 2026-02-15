@@ -833,6 +833,7 @@ class CommandProcessor:
 
         col3.add_row("[bold white]Research[/bold white]", "")
         col3.add_row("news TSLA", "company news")
+        col3.add_row("  provider:xai|tavily", "force provider")
         col3.add_row("profile TSLA", "company profile")
         col3.add_row("financials AAPL", "income & balance sheet")
         col3.add_row("price TSLA", "quote & technicals")

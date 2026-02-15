@@ -119,6 +119,7 @@ def _help_html():
     col3 = Div(
         *_section("Research", [
             ("news TSLA", "company news"),
+            ("  provider:xai|tavily", "force news provider"),
             ("profile TSLA", "company profile"),
             ("financials AAPL", "income & balance sheet"),
             ("price TSLA", "quote & technicals"),

@@ -188,7 +188,7 @@ class MarketResearch:
         if not self.tavily_key:
             return None
         try:
-            query = f"latest financial news for {ticker}" if ticker else "latest US stock market news"
+            query = f"{ticker} stock news today" if ticker else "US stock market news today"
             r = requests.post("https://api.tavily.com/search", json={
                 "api_key": self.tavily_key,
                 "query": query,
@@ -200,8 +200,18 @@ class MarketResearch:
             data = r.json()
             articles = []
             for item in data.get("results", [])[:limit]:
+                # Parse published_date if available
+                time_str = ""
+                pub = item.get("published_date", "")
+                if pub:
+                    try:
+                        from email.utils import parsedate_to_datetime
+                        dt = parsedate_to_datetime(pub)
+                        time_str = dt.strftime("%b %d %I:%M %p")
+                    except Exception:
+                        time_str = pub[:16]
                 articles.append({
-                    "time": "",
+                    "time": time_str,
                     "title": item.get("title", ""),
                     "source": item.get("url", "").split("/")[2] if item.get("url") else "",
                     "url": item.get("url", ""),

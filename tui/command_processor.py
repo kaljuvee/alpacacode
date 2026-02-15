@@ -105,14 +105,16 @@ class CommandProcessor:
             return self._agent_runs()
         elif subcmd == "agent:trades":
             return self._agent_trades(params)
+        elif subcmd == "agent:report":
+            return self._agent_report(params)
         elif subcmd == "agent:stop":
             return self._agent_stop()
         else:
             return (
                 f"# Unknown Agent Command\n\n`{subcmd}` is not recognized.\n\n"
                 "Available: `agent:backtest`, `agent:validate`, `agent:paper`, "
-                "`agent:full`, `agent:reconcile`, `agent:status`, `agent:runs`, "
-                "`agent:trades`, `agent:stop`"
+                "`agent:full`, `agent:reconcile`, `agent:report`, `agent:status`, "
+                "`agent:runs`, `agent:trades`, `agent:stop`"
             )
 
     def _parse_kv_params(self, parts: list) -> Dict[str, str]:
@@ -466,10 +468,11 @@ class CommandProcessor:
         md = f"# {mode.replace('_', ' ').title()} — {status_label}\n\n"
         md += f"- **Run ID**: `{orch.run_id}`\n"
 
-        # Show started time, format nicely
+        # Show started time in ET
+        from utils.tz_util import format_et
         started = orch.state.started_at or 'n/a'
-        if started != 'n/a' and len(started) > 19:
-            started = started[:19].replace('T', ' ')
+        if started != 'n/a':
+            started = format_et(started)
         md += f"- **Started**: {started}\n\n"
 
         # Agents table — only show agents relevant to the mode
@@ -523,12 +526,13 @@ class CommandProcessor:
             if not rows:
                 return "# Runs\n\nNo runs found in database."
 
+            from utils.tz_util import format_et
             md = "# Recent Runs\n\n"
-            md += "| Run ID | Mode | Strategy | Status | Started |\n"
-            md += "|--------|------|----------|--------|---------|\n"
+            md += "| Run ID | Mode | Strategy | Status | Started (ET) |\n"
+            md += "|--------|------|----------|--------|--------------|\n"
             for r in rows:
                 short_id = str(r[0])[:8]
-                started = str(r[4])[:19] if r[4] else "-"
+                started = format_et(r[4]) if r[4] else "-"
                 md += f"| `{short_id}...` | {r[1]} | {r[2] or '-'} | {r[3]} | {started} |\n"
 
             md += f"\n*{len(rows)} runs shown*"
@@ -593,6 +597,76 @@ class CommandProcessor:
                 )
 
             md += f"\n*{len(rows)} trades shown*"
+            return md
+
+        except Exception as e:
+            return f"# Error\n\n```\n{e}\n```"
+
+    # ------------------------------------------------------------------
+    # agent:report
+    # ------------------------------------------------------------------
+
+    def _agent_report(self, params: Dict) -> str:
+        """Generate performance report from DB data."""
+        try:
+            from agents.report_agent import ReportAgent
+            from utils.tz_util import format_et
+
+            agent = ReportAgent()
+            run_id = params.get("run-id")
+
+            # Detail mode: single run
+            if run_id:
+                data = agent.detail(run_id)
+                if not data:
+                    return f"# Report\n\nRun `{run_id}` not found."
+
+                short_id = str(data["run_id"])[:8]
+                started = format_et(data["started_at"], "%b %-d") if data["started_at"] else "-"
+                ended = format_et(data["completed_at"], "%b %-d") if data["completed_at"] else "-"
+                w = data["winning_trades"]
+                l = data["losing_trades"]
+
+                md = f"# Report: {short_id}...\n\n"
+                md += "| Metric | Value |\n|--------|-------|\n"
+                md += f"| Mode | {data['mode']} |\n"
+                md += f"| Strategy | {data['strategy'] or '-'} |\n"
+                md += f"| Status | {data['status']} |\n"
+                md += f"| Initial Capital | ${data['initial_capital']:,.2f} |\n"
+                md += f"| Final Capital | ${data['final_capital']:,.2f} |\n"
+                md += f"| Total P&L | ${data['total_pnl']:,.2f} |\n"
+                md += f"| Total Return | {data['total_return']:.2f}% |\n"
+                md += f"| Annualized Return | {data['annualized_return']:.2f}% |\n"
+                md += f"| Sharpe Ratio | {data['sharpe_ratio']:.2f} |\n"
+                md += f"| Max Drawdown | {data['max_drawdown']:.2f}% |\n"
+                md += f"| Win Rate | {data['win_rate']:.1f}% |\n"
+                md += f"| Trades (W/L) | {data['total_trades']} ({w}W / {l}L) |\n"
+                md += f"| Period | {started} → {ended} |\n"
+                return md
+
+            # Summary mode: list of runs
+            trade_type = params.get("type")
+            limit = int(params.get("limit", "10"))
+            rows = agent.summary(trade_type=trade_type, limit=limit)
+
+            if not rows:
+                return "# Performance Summary\n\nNo runs found."
+
+            md = "# Performance Summary\n\n"
+            md += "| Run ID | Mode | Strategy | P&L | Return | Sharpe | Trades | Status |\n"
+            md += "|--------|------|----------|-----|--------|--------|--------|--------|\n"
+            for r in rows:
+                short_id = str(r["run_id"])[:8]
+                pnl_str = f"${r['total_pnl']:,.2f}"
+                ret_str = f"{r['total_return']:.1f}%"
+                sharpe_str = f"{r['sharpe_ratio']:.2f}" if r["sharpe_ratio"] else "-"
+                md += (
+                    f"| `{short_id}...` | {r['mode']} | {r['strategy'] or '-'} | "
+                    f"{pnl_str} | {ret_str} | {sharpe_str} | "
+                    f"{r['total_trades']} | {r['status']} |\n"
+                )
+
+            md += f"\n*{len(rows)} runs shown*"
             return md
 
         except Exception as e:
@@ -847,7 +921,8 @@ Type 'help' for available commands.
             trades_df, _, _ = results
             output_dir = Path("backtest-results")
             output_dir.mkdir(exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            from utils.tz_util import now_et
+            timestamp = now_et().strftime("%Y%m%d_%H%M%S")
             filename = f"backtests_details_buy_the_dip_{timestamp}.csv"
             trades_df.to_csv(output_dir / filename, index=False)
 
@@ -888,7 +963,8 @@ Type 'help' for available commands.
             trades_df, _, _ = results
             output_dir = Path("backtest-results")
             output_dir.mkdir(exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            from utils.tz_util import now_et
+            timestamp = now_et().strftime("%Y%m%d_%H%M%S")
             filename = f"backtests_details_momentum_{timestamp}.csv"
             trades_df.to_csv(output_dir / filename, index=False)
 
@@ -917,6 +993,7 @@ Type 'help' for available commands.
         md = f"# {strategy} Strategy Backtest Results\n\n"
         md += "## Configuration\n\n"
         md += f"- **Symbols**: {', '.join(symbols)}\n"
+        from utils.tz_util import format_et
         md += f"- **Period**: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}\n"
         md += f"- **Initial Capital**: ${initial_capital:,.2f}\n"
         for key, value in params.items():
@@ -938,8 +1015,8 @@ Type 'help' for available commands.
         md += "| Entry Time | Exit Time | Ticker | Shares | Entry $ | Exit $ | P&L | P&L % |\n"
         md += "|------------|-----------|--------|--------|---------|--------|-----|-------|\n"
         for _, trade in recent_trades.iterrows():
-            entry_time = pd.to_datetime(trade['entry_time']).strftime('%Y-%m-%d %H:%M')
-            exit_time = pd.to_datetime(trade['exit_time']).strftime('%Y-%m-%d %H:%M')
+            entry_time = format_et(trade['entry_time'])
+            exit_time = format_et(trade['exit_time'])
             md += (
                 f"| {entry_time} | {exit_time} | {trade['ticker']} | {trade['shares']} | "
                 f"${trade['entry_price']:.2f} | ${trade['exit_price']:.2f} | "

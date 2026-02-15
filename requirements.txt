@@ -17,3 +17,5 @@ textual
 rich
 python-fasthtml
 httpx
+fastapi
+uvicorn[standard]

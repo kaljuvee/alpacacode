@@ -69,7 +69,10 @@ class ReportAgent:
                         -- Paper trade aggregates
                         pt.paper_pnl,
                         pt.paper_trades,
-                        pt.paper_wins
+                        pt.paper_wins,
+                        -- Data period (from trades)
+                        td.data_start,
+                        td.data_end
                     FROM alpacacode.runs r
                     LEFT JOIN alpacacode.backtest_summaries bs
                         ON bs.run_id = r.run_id AND bs.is_best = true
@@ -82,6 +85,13 @@ class ReportAgent:
                         WHERE trade_type = 'paper'
                         GROUP BY run_id
                     ) pt ON pt.run_id = r.run_id AND r.mode = 'paper'
+                    LEFT JOIN (
+                        SELECT run_id,
+                               MIN(entry_time) AS data_start,
+                               MAX(COALESCE(exit_time, entry_time)) AS data_end
+                        FROM alpacacode.trades
+                        GROUP BY run_id
+                    ) td ON td.run_id = r.run_id
                     {where_sql}
                     ORDER BY r.created_at DESC
                     LIMIT :lim
@@ -94,7 +104,8 @@ class ReportAgent:
             (run_id, mode, strategy, status, started_at, completed_at,
              config_json, bt_pnl, bt_return, bt_sharpe, bt_trades,
              bt_win_rate, bt_ann_ret,
-             paper_pnl, paper_trades, paper_wins) = row
+             paper_pnl, paper_trades, paper_wins,
+             data_start, data_end) = row
 
             initial_capital = self._initial_capital(config_json)
 
@@ -129,7 +140,9 @@ class ReportAgent:
                 "annualized_return": ann_ret,
                 "sharpe_ratio": sharpe,
                 "total_trades": trades_count,
-                "started_at": started_at,
+                "data_start": data_start,
+                "data_end": data_end,
+                "run_date": started_at,
             })
 
         return results
@@ -197,6 +210,17 @@ class ReportAgent:
             {"run_id": run_id},
         ).fetchone()
 
+        # Data period from trades
+        tp = session.execute(
+            text("""
+                SELECT MIN(entry_time), MAX(COALESCE(exit_time, entry_time))
+                FROM alpacacode.trades WHERE run_id = :run_id
+            """),
+            {"run_id": run_id},
+        ).fetchone()
+        data_start = tp[0] if tp else None
+        data_end = tp[1] if tp else None
+
         if bs:
             total_return, total_pnl, sharpe, max_dd, ann_ret, win_rate, total_trades = bs
             total_pnl = float(total_pnl or 0)
@@ -225,8 +249,9 @@ class ReportAgent:
             "total_trades": int(total_trades or 0),
             "winning_trades": winning,
             "losing_trades": losing,
-            "started_at": started_at,
-            "completed_at": completed_at,
+            "data_start": data_start,
+            "data_end": data_end,
+            "run_date": started_at,
         }
 
     def _detail_paper(self, session, run_id, mode, strategy, status,
@@ -242,6 +267,17 @@ class ReportAgent:
             """),
             {"run_id": run_id},
         ).fetchall()
+
+        # Data period from trades
+        tp = session.execute(
+            text("""
+                SELECT MIN(entry_time), MAX(COALESCE(exit_time, entry_time))
+                FROM alpacacode.trades WHERE run_id = :run_id
+            """),
+            {"run_id": run_id},
+        ).fetchone()
+        data_start = tp[0] if tp else None
+        data_end = tp[1] if tp else None
 
         if not rows:
             return {
@@ -260,8 +296,9 @@ class ReportAgent:
                 "total_trades": 0,
                 "winning_trades": 0,
                 "losing_trades": 0,
-                "started_at": started_at,
-                "completed_at": completed_at,
+                "data_start": data_start,
+                "data_end": data_end,
+                "run_date": started_at,
             }
 
         import numpy as np
@@ -316,8 +353,9 @@ class ReportAgent:
             "total_trades": total_trades,
             "winning_trades": winning,
             "losing_trades": losing,
-            "started_at": started_at,
-            "completed_at": completed_at,
+            "data_start": data_start,
+            "data_end": data_end,
+            "run_date": started_at,
         }
 
     @staticmethod

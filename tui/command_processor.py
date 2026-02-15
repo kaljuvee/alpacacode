@@ -622,8 +622,9 @@ class CommandProcessor:
                     return f"# Report\n\nRun `{run_id}` not found."
 
                 short_id = str(data["run_id"])[:8]
-                started = format_et(data["started_at"], "%b %-d") if data["started_at"] else "-"
-                ended = format_et(data["completed_at"], "%b %-d") if data["completed_at"] else "-"
+                ds = format_et(data["data_start"], "%Y-%m-%d") if data.get("data_start") else "-"
+                de = format_et(data["data_end"], "%Y-%m-%d") if data.get("data_end") else "-"
+                rd = format_et(data["run_date"], "%Y-%m-%d %H:%M ET") if data.get("run_date") else "-"
                 w = data["winning_trades"]
                 l = data["losing_trades"]
 
@@ -632,6 +633,8 @@ class CommandProcessor:
                 md += f"| Mode | {data['mode']} |\n"
                 md += f"| Strategy | {data['strategy'] or '-'} |\n"
                 md += f"| Status | {data['status']} |\n"
+                md += f"| Data Period | {ds} → {de} |\n"
+                md += f"| Run Date | {rd} |\n"
                 md += f"| Initial Capital | ${data['initial_capital']:,.2f} |\n"
                 md += f"| Final Capital | ${data['final_capital']:,.2f} |\n"
                 md += f"| Total P&L | ${data['total_pnl']:,.2f} |\n"
@@ -641,7 +644,6 @@ class CommandProcessor:
                 md += f"| Max Drawdown | {data['max_drawdown']:.2f}% |\n"
                 md += f"| Win Rate | {data['win_rate']:.1f}% |\n"
                 md += f"| Trades (W/L) | {data['total_trades']} ({w}W / {l}L) |\n"
-                md += f"| Period | {started} → {ended} |\n"
                 return md
 
             # Summary mode: list of runs
@@ -653,18 +655,23 @@ class CommandProcessor:
                 return "# Performance Summary\n\nNo runs found."
 
             md = "# Performance Summary\n\n"
-            md += "| Run ID | Mode | Strategy | Capital | P&L | Return | Ann. Ret | Sharpe | Trades | Status |\n"
-            md += "|--------|------|----------|---------|-----|--------|----------|--------|--------|--------|\n"
+            md += "| Run ID | Mode | Strategy | Period | Run Date | Capital | P&L | Return | Ann. Ret | Sharpe | Trades | Status |\n"
+            md += "|--------|------|----------|--------|----------|---------|-----|--------|----------|--------|--------|--------|\n"
             for r in rows:
                 short_id = str(r["run_id"])[:8]
+                ds = format_et(r["data_start"], "%m/%d") if r.get("data_start") else "-"
+                de = format_et(r["data_end"], "%m/%d") if r.get("data_end") else "-"
+                period = f"{ds}-{de}" if ds != "-" else "-"
+                rd = format_et(r["run_date"], "%m/%d %H:%M") if r.get("run_date") else "-"
                 cap_str = f"${r['initial_capital']:,.0f}"
                 pnl_str = f"${r['total_pnl']:,.2f}"
                 ret_str = f"{r['total_return']:.1f}%"
                 ann_str = f"{r['annualized_return']:.1f}%" if r["annualized_return"] else "-"
                 sharpe_str = f"{r['sharpe_ratio']:.2f}" if r["sharpe_ratio"] else "-"
                 md += (
-                    f"| `{short_id}...` | {r['mode']} | {r['strategy'] or '-'} | "
-                    f"{cap_str} | {pnl_str} | {ret_str} | {ann_str} | {sharpe_str} | "
+                    f"| `{short_id}` | {r['mode']} | {r['strategy'] or '-'} | "
+                    f"{period} | {rd} | {cap_str} | {pnl_str} | {ret_str} | "
+                    f"{ann_str} | {sharpe_str} | "
                     f"{r['total_trades']} | {r['status']} |\n"
                 )
 

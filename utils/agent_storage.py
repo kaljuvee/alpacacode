@@ -129,7 +129,7 @@ def _store_backtest_file(run_id: str, best: Dict, all_results: List[Dict],
     path = BACKTEST_DIR / f"{run_id}.json"
     payload = {
         "run_id": run_id,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "best_config": best,
         "all_results": all_results,
         "trades": trades or [],

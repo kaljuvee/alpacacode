@@ -17,6 +17,7 @@ load_dotenv()
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.alpaca_util import AlpacaAPI
+from utils.tz_util import format_et
 
 # Page configuration
 st.set_page_config(
@@ -260,7 +261,7 @@ with tab3:
                     'Status': order.get('status'),
                     'Limit Price': f"${float(order.get('limit_price', 0)):.2f}" if order.get('limit_price') else 'N/A',
                     'Stop Price': f"${float(order.get('stop_price', 0)):.2f}" if order.get('stop_price') else 'N/A',
-                    'Created': order.get('created_at', 'N/A')[:19] if order.get('created_at') else 'N/A'
+                    'Created (ET)': format_et(order.get('created_at')) if order.get('created_at') else 'N/A'
                 })
             
             df = pd.DataFrame(orders_data)

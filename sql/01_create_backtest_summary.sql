@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS backtest_summary (
     id SERIAL PRIMARY KEY,
     run_id VARCHAR(255) UNIQUE NOT NULL,
-    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     model_name VARCHAR(255) DEFAULT 'prediction_llm',
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS backtest_summary (
     rundate DATE NOT NULL,
     notes TEXT,
     strategy_id VARCHAR(255),
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create indexes for common queries

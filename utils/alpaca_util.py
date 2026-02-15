@@ -10,7 +10,7 @@ Based on Alpaca Python SDK: https://github.com/alpacahq/alpaca-py
 import os
 import logging
 from typing import Dict, List, Optional, Union, Any, TypedDict, Annotated
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 from dotenv import load_dotenv
 import requests
@@ -122,12 +122,12 @@ class AlpacaAPI:
                 try:
                     orders_dir = Path("data") / "orders"
                     orders_dir.mkdir(parents=True, exist_ok=True)
-                    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+                    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
                     outfile = orders_dir / f"orders-{date_str}.jsonl"
                     with outfile.open("a", encoding="utf-8") as f:
                         f.write(json.dumps({
                             **order_dict,
-                            "_stored_at": datetime.utcnow().isoformat() + "Z",
+                            "_stored_at": datetime.now(timezone.utc).isoformat(),
                             "_paper": self.paper
                         }, default=str) + "\n")
                     stored = True

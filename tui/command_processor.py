@@ -653,16 +653,18 @@ class CommandProcessor:
                 return "# Performance Summary\n\nNo runs found."
 
             md = "# Performance Summary\n\n"
-            md += "| Run ID | Mode | Strategy | P&L | Return | Sharpe | Trades | Status |\n"
-            md += "|--------|------|----------|-----|--------|--------|--------|--------|\n"
+            md += "| Run ID | Mode | Strategy | Capital | P&L | Return | Ann. Ret | Sharpe | Trades | Status |\n"
+            md += "|--------|------|----------|---------|-----|--------|----------|--------|--------|--------|\n"
             for r in rows:
                 short_id = str(r["run_id"])[:8]
+                cap_str = f"${r['initial_capital']:,.0f}"
                 pnl_str = f"${r['total_pnl']:,.2f}"
                 ret_str = f"{r['total_return']:.1f}%"
+                ann_str = f"{r['annualized_return']:.1f}%" if r["annualized_return"] else "-"
                 sharpe_str = f"{r['sharpe_ratio']:.2f}" if r["sharpe_ratio"] else "-"
                 md += (
                     f"| `{short_id}...` | {r['mode']} | {r['strategy'] or '-'} | "
-                    f"{pnl_str} | {ret_str} | {sharpe_str} | "
+                    f"{cap_str} | {pnl_str} | {ret_str} | {ann_str} | {sharpe_str} | "
                     f"{r['total_trades']} | {r['status']} |\n"
                 )
 

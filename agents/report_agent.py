@@ -60,11 +60,12 @@ class ReportAgent:
                         r.completed_at,
                         r.config,
                         -- Backtest metrics (best variation)
-                        bs.total_pnl     AS bt_pnl,
-                        bs.total_return   AS bt_return,
-                        bs.sharpe_ratio   AS bt_sharpe,
-                        bs.total_trades   AS bt_trades,
-                        bs.win_rate       AS bt_win_rate,
+                        bs.total_pnl          AS bt_pnl,
+                        bs.total_return       AS bt_return,
+                        bs.sharpe_ratio       AS bt_sharpe,
+                        bs.total_trades       AS bt_trades,
+                        bs.win_rate           AS bt_win_rate,
+                        bs.annualized_return  AS bt_ann_ret,
                         -- Paper trade aggregates
                         pt.paper_pnl,
                         pt.paper_trades,
@@ -92,7 +93,10 @@ class ReportAgent:
         for row in rows:
             (run_id, mode, strategy, status, started_at, completed_at,
              config_json, bt_pnl, bt_return, bt_sharpe, bt_trades,
-             bt_win_rate, paper_pnl, paper_trades, paper_wins) = row
+             bt_win_rate, bt_ann_ret,
+             paper_pnl, paper_trades, paper_wins) = row
+
+            initial_capital = self._initial_capital(config_json)
 
             # Pick metrics based on mode
             if mode == "backtest" and bt_pnl is not None:
@@ -100,25 +104,29 @@ class ReportAgent:
                 total_return = float(bt_return or 0)
                 sharpe = float(bt_sharpe or 0)
                 trades_count = int(bt_trades or 0)
+                ann_ret = float(bt_ann_ret or 0)
             elif mode == "paper" and paper_trades:
-                initial_capital = self._initial_capital(config_json)
                 total_pnl = float(paper_pnl or 0)
                 total_return = (total_pnl / initial_capital * 100) if initial_capital else 0
                 sharpe = 0  # not enough data for paper
                 trades_count = int(paper_trades or 0)
+                ann_ret = 0
             else:
                 total_pnl = 0
                 total_return = 0
                 sharpe = 0
                 trades_count = 0
+                ann_ret = 0
 
             results.append({
                 "run_id": run_id,
                 "mode": mode,
                 "strategy": strategy,
                 "status": status,
+                "initial_capital": initial_capital,
                 "total_pnl": total_pnl,
                 "total_return": total_return,
+                "annualized_return": ann_ret,
                 "sharpe_ratio": sharpe,
                 "total_trades": trades_count,
                 "started_at": started_at,

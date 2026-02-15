@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # AlpacaCode installer
-# Usage: curl -fsSL https://alpacacode.com/install.sh | bash
+# Usage: curl -fsSL https://cli.alpacacode.dev/install.sh | bash
 
 REPO="https://github.com/kaljuvee/alpacacode.git"
 INSTALL_DIR="$HOME/.alpacacode"

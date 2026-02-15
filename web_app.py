@@ -1,6 +1,10 @@
 """FastHTML web shell for AlpacaCode — browser-based CLI."""
+import asyncio
+import collections
+import logging
 import os
 import sys
+import threading
 from pathlib import Path
 
 # Ensure project root is importable
@@ -13,8 +17,44 @@ from tui.strategy_cli import StrategyCLI
 
 load_dotenv()
 
+
+# ---------------------------------------------------------------------------
+# Log capture handler — thread-safe, stores lines in a bounded deque
+# ---------------------------------------------------------------------------
+
+class LogCapture(logging.Handler):
+    """Captures log records into a deque for streaming to the browser."""
+
+    def __init__(self, maxlen=500):
+        super().__init__()
+        self.lines = collections.deque(maxlen=maxlen)
+        self._lock = threading.Lock()
+        self.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            with self._lock:
+                self.lines.append(msg)
+        except Exception:
+            self.handleError(record)
+
+    def get_lines(self):
+        with self._lock:
+            return list(self.lines)
+
+    def clear(self):
+        with self._lock:
+            self.lines.clear()
+
 # Singleton state container (persists across requests)
 cli = StrategyCLI()
+cli._log_capture = LogCapture()
+cli._cmd_task = None      # asyncio.Task for current long-running command
+cli._cmd_result = None    # markdown result when command completes
+
+# Commands that trigger background streaming
+_STREAMING_COMMANDS = {"agent:backtest", "agent:paper", "agent:full", "agent:validate", "agent:reconcile"}
 
 # ---------------------------------------------------------------------------
 # Google OAuth setup (optional — gracefully skip if no creds)
@@ -95,6 +135,11 @@ nav.top-nav .nav-links a:hover { color: var(--pico-primary); }
             color: #fff; border: none; padding: 0.25rem 0.75rem; border-radius: 0.25rem;
             cursor: pointer; font-size: 0.8em; }
 .copy-btn:hover { opacity: 0.85; }
+
+/* Log console for streaming agent output */
+.log-console { max-height: 400px; overflow-y: auto; background: #1a1a2e;
+               border-radius: 0.5rem; padding: 0.5rem; margin-top: 0.5rem; }
+.log-pre { color: #8b949e; font-size: 0.8em; margin: 0; white-space: pre-wrap; word-break: break-word; }
 """)
 
 _js = Script("""
@@ -111,6 +156,11 @@ document.addEventListener('htmx:afterRequest', function(evt) {
 // Extend HTMX timeout for long-running commands (backtests)
 document.addEventListener('htmx:configRequest', function(evt) {
     evt.detail.timeout = 300000;  // 5 minutes
+});
+// Auto-scroll log console when new content arrives
+document.addEventListener('htmx:afterSwap', function(evt) {
+    var lc = document.getElementById('log-console');
+    if (lc) lc.scrollTop = lc.scrollHeight;
 });
 """)
 
@@ -313,6 +363,11 @@ async def post(command: str, session):
                     )
                 session["query_count"] = count + 1
 
+        # Check if this is a long-running agent command
+        first_word = cmd_lower.split()[0] if cmd_lower.split() else ""
+        if first_word in _STREAMING_COMMANDS:
+            return _start_streaming_command(command)
+
         processor = CommandProcessor(cli)
         result_md = await processor.process_command(command) or ""
 
@@ -321,6 +376,87 @@ async def post(command: str, session):
         Div(result_md, cls="marked"),
         cls="cmd-entry",
     )
+
+
+# ---------------------------------------------------------------------------
+# Streaming log console for long-running commands
+# ---------------------------------------------------------------------------
+
+
+def _start_streaming_command(command: str):
+    """Launch a long-running command as a background task and return log console HTML."""
+    # Cancel any existing running command task
+    if cli._cmd_task and not cli._cmd_task.done():
+        cli._cmd_task.cancel()
+
+    # Reset state
+    cli._log_capture.clear()
+    cli._cmd_result = None
+
+    # Attach log handler to root logger
+    root_logger = logging.getLogger()
+    # Remove old capture handler if still attached
+    root_logger.handlers = [h for h in root_logger.handlers if not isinstance(h, LogCapture)]
+    root_logger.addHandler(cli._log_capture)
+    if root_logger.level > logging.INFO:
+        root_logger.setLevel(logging.INFO)
+
+    async def _run():
+        try:
+            processor = CommandProcessor(cli)
+            result = await processor.process_command(command) or ""
+            cli._cmd_result = result
+        except Exception as e:
+            cli._cmd_result = f"# Error\n\n```\n{e}\n```"
+        finally:
+            # Remove log handler
+            logging.getLogger().handlers = [
+                h for h in logging.getLogger().handlers if not isinstance(h, LogCapture)
+            ]
+
+    cli._cmd_task = asyncio.create_task(_run())
+
+    return Div(
+        P(B(f"> {command}"), cls="cmd-echo"),
+        Div(
+            Pre("Starting...", cls="log-pre"),
+            id="log-console", cls="log-console",
+            hx_get="/logs", hx_trigger="every 1s", hx_swap="innerHTML",
+        ),
+        cls="cmd-entry",
+    )
+
+
+@rt("/logs")
+def logs_get():
+    """Return current log lines; HTTP 286 stops HTMX polling when done."""
+    lines = cli._log_capture.get_lines()
+    log_text = "\n".join(lines) if lines else "Waiting for output..."
+
+    task = cli._cmd_task
+    bg_task = cli._bg_task  # paper trade background task
+
+    # Command processor task finished?
+    cmd_done = task is None or task.done()
+    # Paper trade still running in background?
+    bg_running = bg_task is not None and not bg_task.done()
+
+    if cmd_done and not bg_running and cli._cmd_result is not None:
+        # Command fully complete — return result and stop polling (HTTP 286)
+        result_html = Div(
+            Pre(log_text, cls="log-pre"),
+            Hr(),
+            Div(cli._cmd_result, cls="marked"),
+        )
+        cli._cmd_result = None  # clear for next run
+        return Response(
+            to_xml(result_html),
+            status_code=286,
+            headers={"Content-Type": "text/html"},
+        )
+
+    # Still running — return log lines
+    return Pre(log_text, cls="log-pre")
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +507,7 @@ else:
 
 @rt("/download")
 def download_get(session):
-    curl_cmd = "curl -fsSL https://alpacacode.com/install.sh | bash"
+    curl_cmd = "curl -fsSL https://cli.alpacacode.dev/install.sh | bash"
     return (
         Title("Download — AlpacaCode"),
         Main(

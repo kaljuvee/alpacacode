@@ -42,6 +42,11 @@ COMMANDS = {
         "strategy": ["buy_the_dip", "momentum"],
     },
     "agent:reconcile": {"window": ["7d", "14d", "30d"]},
+    "agent:report": {
+        "run-id": None,
+        "type": ["backtest", "paper"],
+        "limit": None,
+    },
     "agent:status": {},
     "agent:runs": {},
     "agent:trades": {"run-id": None, "type": ["backtest", "paper_trade"], "limit": None},

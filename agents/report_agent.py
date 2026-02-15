@@ -55,6 +55,7 @@ class ReportAgent:
                         r.run_id,
                         r.mode,
                         r.strategy,
+                        r.strategy_slug,
                         r.status,
                         r.started_at,
                         r.completed_at,
@@ -101,9 +102,9 @@ class ReportAgent:
 
         results = []
         for row in rows:
-            (run_id, mode, strategy, status, started_at, completed_at,
-             config_json, bt_pnl, bt_return, bt_sharpe, bt_trades,
-             bt_win_rate, bt_ann_ret,
+            (run_id, mode, strategy, strategy_slug, status, started_at,
+             completed_at, config_json, bt_pnl, bt_return, bt_sharpe,
+             bt_trades, bt_win_rate, bt_ann_ret,
              paper_pnl, paper_trades, paper_wins,
              data_start, data_end) = row
 
@@ -133,6 +134,7 @@ class ReportAgent:
                 "run_id": run_id,
                 "mode": mode,
                 "strategy": strategy,
+                "strategy_slug": strategy_slug,
                 "status": status,
                 "initial_capital": initial_capital,
                 "total_pnl": total_pnl,
@@ -192,6 +194,70 @@ class ReportAgent:
                     initial_capital, started_at, completed_at,
                 )
 
+    def top_strategies(self, strategy: Optional[str] = None,
+                        limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Rank strategy slugs by average Sharpe ratio across all runs.
+
+        Args:
+            strategy: Optional prefix filter (e.g. "btd" to show only buy-the-dip).
+            limit: Max rows to return.
+
+        Returns:
+            List of dicts with strategy_slug, avg_sharpe, avg_return, avg_win_rate,
+            total_runs, total_trades.
+        """
+        from utils.db.db_pool import DatabasePool
+        from sqlalchemy import text
+
+        where_clauses = ["bs.strategy_slug IS NOT NULL"]
+        bind: Dict[str, Any] = {"lim": limit}
+        if strategy:
+            where_clauses.append("bs.strategy_slug LIKE :prefix")
+            bind["prefix"] = strategy + "%"
+
+        where_sql = " WHERE " + " AND ".join(where_clauses)
+
+        pool = DatabasePool()
+        with pool.get_session() as session:
+            rows = session.execute(
+                text(f"""
+                    SELECT
+                        bs.strategy_slug,
+                        AVG(bs.sharpe_ratio)      AS avg_sharpe,
+                        AVG(bs.total_return)       AS avg_return,
+                        AVG(bs.annualized_return)  AS avg_ann_return,
+                        AVG(bs.win_rate)           AS avg_win_rate,
+                        AVG(bs.max_drawdown)       AS avg_drawdown,
+                        SUM(bs.total_trades)       AS total_trades,
+                        COUNT(*)                   AS total_runs,
+                        AVG(bs.total_pnl)          AS avg_pnl
+                    FROM alpacacode.backtest_summaries bs
+                    {where_sql}
+                    GROUP BY bs.strategy_slug
+                    ORDER BY avg_sharpe DESC
+                    LIMIT :lim
+                """),
+                bind,
+            ).fetchall()
+
+        results = []
+        for row in rows:
+            (slug, avg_sharpe, avg_return, avg_ann_return, avg_win_rate,
+             avg_drawdown, total_trades, total_runs, avg_pnl) = row
+            results.append({
+                "strategy_slug": slug,
+                "avg_sharpe": float(avg_sharpe or 0),
+                "avg_return": float(avg_return or 0),
+                "avg_ann_return": float(avg_ann_return or 0),
+                "avg_win_rate": float(avg_win_rate or 0),
+                "avg_drawdown": float(avg_drawdown or 0),
+                "total_trades": int(total_trades or 0),
+                "total_runs": int(total_runs or 0),
+                "avg_pnl": float(avg_pnl or 0),
+            })
+        return results
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -203,7 +269,7 @@ class ReportAgent:
         bs = session.execute(
             text("""
                 SELECT total_return, total_pnl, sharpe_ratio, max_drawdown,
-                       annualized_return, win_rate, total_trades
+                       annualized_return, win_rate, total_trades, strategy_slug
                 FROM alpacacode.backtest_summaries
                 WHERE run_id = :run_id AND is_best = true
             """),
@@ -222,7 +288,7 @@ class ReportAgent:
         data_end = tp[1] if tp else None
 
         if bs:
-            total_return, total_pnl, sharpe, max_dd, ann_ret, win_rate, total_trades = bs
+            total_return, total_pnl, sharpe, max_dd, ann_ret, win_rate, total_trades, bs_slug = bs
             total_pnl = float(total_pnl or 0)
             total_return = float(total_return or 0)
             final_capital = initial_capital + total_pnl
@@ -232,11 +298,13 @@ class ReportAgent:
             total_pnl = total_return = sharpe = max_dd = ann_ret = win_rate = 0
             total_trades = winning = losing = 0
             final_capital = initial_capital
+            bs_slug = None
 
         return {
             "run_id": run_id,
             "mode": mode,
             "strategy": strategy,
+            "strategy_slug": bs_slug,
             "status": status,
             "initial_capital": initial_capital,
             "final_capital": final_capital,

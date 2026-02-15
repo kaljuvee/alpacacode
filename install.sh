@@ -5,8 +5,20 @@ set -e
 
 echo "==> Installing AlpacaCode..."
 
-# Install deps (Termux has Python built-in)
-pip install --quiet requests rich 2>/dev/null || pip install requests rich
+# Ensure Python + pip are installed (Termux)
+if ! command -v pip &>/dev/null && ! command -v pip3 &>/dev/null; then
+    echo "==> Installing Python..."
+    pkg install -y python 2>/dev/null || apt install -y python 2>/dev/null || true
+fi
+
+# Find pip
+PIP=$(command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
+if [ -z "$PIP" ]; then
+    echo "Error: pip not found. Install Python first: pkg install python"
+    exit 1
+fi
+
+$PIP install --quiet requests rich 2>/dev/null || $PIP install requests rich
 
 # Download client
 DEST="$HOME/.alpacacode"
@@ -15,9 +27,10 @@ curl -fsSL https://raw.githubusercontent.com/kaljuvee/alpacacode/main/ac.py -o "
 
 # Create wrapper in ~/bin
 mkdir -p "$HOME/bin"
-cat > "$HOME/bin/ac" << 'WRAPPER'
+PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+cat > "$HOME/bin/ac" << WRAPPER
 #!/bin/bash
-exec python "$HOME/.alpacacode/ac.py" "$@"
+exec $PY "\$HOME/.alpacacode/ac.py" "\$@"
 WRAPPER
 chmod +x "$HOME/bin/ac"
 

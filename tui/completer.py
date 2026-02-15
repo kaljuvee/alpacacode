@@ -51,6 +51,13 @@ COMMANDS = {
     "agent:runs": {},
     "agent:trades": {"run-id": None, "type": ["backtest", "paper_trade"], "limit": None},
     "agent:stop": {},
+    "news": {"limit": ["5", "10", "20"]},
+    "profile": {},
+    "financials": {"period": ["annual", "quarterly"]},
+    "price": {},
+    "movers": {},
+    "analysts": {},
+    "valuation": {},
     "alpaca:backtest": {
         "strategy": ["buy-the-dip", "momentum"],
         "lookback": ["1m", "3m", "6m", "1y"],

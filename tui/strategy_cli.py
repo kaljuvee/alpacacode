@@ -143,6 +143,21 @@ class StrategyCLI:
             self._show_runs_table()
             return
 
+        # Analysts: render as Rich 3-column layout instead of markdown
+        if cmd_lower.startswith("analysts"):
+            ticker = cmd_lower.split(":")[1].strip() if ":" in cmd_lower else cmd_lower.split()[1] if len(cmd_lower.split()) > 1 else None
+            if not ticker:
+                self.console.print("\n[red]Usage:[/red] analysts:AAPL\n")
+                return
+            from utils.market_research_util import MarketResearch
+            import asyncio
+            research = MarketResearch()
+            renderable = await asyncio.to_thread(research.analysts_rich, ticker)
+            self.console.print("\n")
+            self.console.print(renderable)
+            self.console.print("\n")
+            return
+
         from tui.command_processor import CommandProcessor
 
         processor = CommandProcessor(self)

@@ -172,7 +172,8 @@ class MarketResearch:
                         "SEC filings, and market-moving events. "
                         "For each item return a JSON array of objects with keys: "
                         '"time" (e.g. "2h ago" or "Today 3:15 PM"), "title" (factual headline), '
-                        '"source" (publication name like Reuters, Bloomberg, CNBC). '
+                        '"source" (publication name like Reuters, Bloomberg, CNBC), '
+                        '"url" (direct URL to the source article). '
                         "Return ONLY the JSON array, no other text."
                     ),
                 }],
@@ -186,7 +187,7 @@ class MarketResearch:
             items = json.loads(text)
             if isinstance(items, list) and items:
                 return [{"time": i.get("time", ""), "title": i.get("title", ""),
-                          "source": i.get("source", ""), "url": ""} for i in items[:limit]]
+                          "source": i.get("source", ""), "url": i.get("url", "")} for i in items[:limit]]
         except Exception as e:
             logger.warning(f"XAI news failed: {e}")
         return None
@@ -618,6 +619,93 @@ class MarketResearch:
                 md += f"| EPS (Forward) | ${eps_fwd:.2f} |\n"
 
         return md
+
+    def analysts_rich(self, ticker):
+        """Return Rich renderable with 3-column analyst layout."""
+        from rich.table import Table
+        from rich.columns import Columns
+        from rich.text import Text
+        from rich.console import Group
+
+        ticker = ticker.upper()
+        try:
+            t = yf.Ticker(ticker)
+            info = t.info
+        except Exception as e:
+            return Text(f"Analysts: {ticker} — Error: {e}", style="red")
+
+        if not info or not info.get("shortName"):
+            return Text(f"Analysts: {ticker} — No data found.", style="yellow")
+
+        header = Text(
+            f"Analyst Coverage: {info.get('shortName', ticker)} ({ticker})",
+            style="bold cyan",
+        )
+
+        # Column 1: Consensus Rating
+        t1 = Table(title="Consensus Rating", show_lines=True, expand=True)
+        t1.add_column("Rating", style="white")
+        t1.add_column("Count", justify="right")
+        try:
+            recs = t.recommendations
+            if recs is not None and not recs.empty:
+                latest = recs.iloc[-1]
+                for col in recs.columns:
+                    if col.lower() not in ("period", "date"):
+                        val = latest.get(col, 0)
+                        if val:
+                            t1.add_row(str(col), str(val))
+        except Exception:
+            pass
+        if t1.row_count == 0:
+            t1.add_row("—", "—")
+
+        # Column 2: Price Targets
+        t2 = Table(title="Price Targets", show_lines=True, expand=True)
+        t2.add_column("Metric", style="white")
+        t2.add_column("Value", justify="right")
+        current = info.get("currentPrice") or info.get("regularMarketPrice")
+        target_mean = info.get("targetMeanPrice")
+        target_high = info.get("targetHighPrice")
+        target_low = info.get("targetLowPrice")
+        num_analysts = info.get("numberOfAnalystOpinions")
+        if target_mean:
+            if current:
+                t2.add_row("Current Price", f"${current:,.2f}")
+            t2.add_row("Mean Target", f"${target_mean:,.2f}")
+            if target_high:
+                t2.add_row("High Target", f"${target_high:,.2f}")
+            if target_low:
+                t2.add_row("Low Target", f"${target_low:,.2f}")
+            if current and target_mean:
+                upside = (target_mean - current) / current * 100
+                t2.add_row("Upside", f"{upside:+.1f}%")
+            if num_analysts:
+                t2.add_row("# Analysts", str(num_analysts))
+        if t2.row_count == 0:
+            t2.add_row("—", "—")
+
+        # Column 3: Growth Estimates
+        t3 = Table(title="Growth Estimates", show_lines=True, expand=True)
+        t3.add_column("Metric", style="white")
+        t3.add_column("Value", justify="right")
+        eg = info.get("earningsGrowth")
+        rg = info.get("revenueGrowth")
+        eps_fwd = info.get("epsForward")
+        eps_cur = info.get("epsCurrentYear")
+        if eg is not None:
+            t3.add_row("Earnings Growth", self._fmt_pct(eg))
+        if rg is not None:
+            t3.add_row("Revenue Growth", self._fmt_pct(rg))
+        if eps_cur is not None:
+            t3.add_row("EPS (Current Year)", f"${eps_cur:.2f}")
+        if eps_fwd is not None:
+            t3.add_row("EPS (Forward)", f"${eps_fwd:.2f}")
+        if t3.row_count == 0:
+            t3.add_row("—", "—")
+
+        cols = Columns([t1, t2, t3], equal=True, expand=True)
+        return Group(header, Text(""), cols)
 
     # ------------------------------------------------------------------
     # 7. valuation

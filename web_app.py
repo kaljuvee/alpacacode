@@ -71,7 +71,7 @@ if _oauth_enabled:
 
 FREE_QUERY_LIMIT = 50
 # Commands that don't count toward the free query limit
-_FREE_COMMANDS = {"help", "h", "?", "clear", "cls", "exit", "quit", "q", "status"}
+_FREE_COMMANDS = {"help", "h", "?", "guide", "clear", "cls", "exit", "quit", "q", "status"}
 
 # ---------------------------------------------------------------------------
 # Custom CSS & JS
@@ -269,7 +269,7 @@ def _help_html():
             ("pdt:false", "disable PDT (>$25k)"),
         ]),
         *_section("General", [
-            ("help / status / clear", ""),
+            ("help / guide / status / clear", ""),
         ]),
     )
 
@@ -375,6 +375,14 @@ async def post(command: str, session):
         return Div(
             P(B(f"> {command}"), cls="cmd-echo"),
             _help_html(),
+            cls="cmd-entry",
+        )
+    elif cmd_lower == "guide":
+        return Div(
+            P(B(f"> {command}"), cls="cmd-echo"),
+            P("Opening ", A("User Guide", href="/guide", target="_blank",
+              style="color: var(--pico-primary); font-weight: bold;"),
+              " — complete reference for all commands."),
             cls="cmd-entry",
         )
     else:

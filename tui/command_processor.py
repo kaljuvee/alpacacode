@@ -59,6 +59,8 @@ class CommandProcessor:
             return None
         elif cmd_lower in ["clear", "cls"]:
             return ""
+        elif cmd_lower == "guide":
+            return self._show_guide()
         elif cmd_lower == "status":
             return self._show_status()
         elif cmd_lower == "trades":
@@ -1059,11 +1061,21 @@ class CommandProcessor:
         col3.add_row("pdt:false", "disable PDT (>$25k)")
         col3.add_row("", "")
         col3.add_row("[bold white]General[/bold white]", "")
-        col3.add_row("help / status / q", "")
+        col3.add_row("help / guide / status / q", "")
 
         c.print(Columns([col1, col2, col3], equal=True, expand=True))
         c.print()
         return ""
+
+    def _show_guide(self) -> str:
+        """Open the user guide in the browser."""
+        import webbrowser
+        url = "https://cli.alpacacode.dev/guide"
+        try:
+            webbrowser.open(url)
+            return f"# User Guide\n\nOpened [{url}]({url}) in your browser."
+        except Exception:
+            return f"# User Guide\n\nVisit the full guide at: [{url}]({url})"
 
     def _show_status(self) -> str:
         """Show current status and configuration."""

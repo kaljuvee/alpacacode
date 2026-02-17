@@ -68,7 +68,7 @@ _oauth_enabled = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 if _oauth_enabled:
     from fasthtml.oauth import GoogleAppClient, redir_url
 
-FREE_QUERY_LIMIT = 5
+FREE_QUERY_LIMIT = 50
 # Commands that don't count toward the free query limit
 _FREE_COMMANDS = {"help", "h", "?", "clear", "cls", "exit", "quit", "q", "status"}
 

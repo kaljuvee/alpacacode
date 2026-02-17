@@ -319,9 +319,17 @@ class CommandProcessor:
             exit_times = list(exit_times)
             capital_values = list(capital_values)
 
+            # Build daily equity curve (end-of-day snapshots) for a smooth line
+            trades_df = pd.DataFrame({"exit_time": exit_times, "capital_after": capital_values})
+            trades_df["date"] = pd.to_datetime(trades_df["exit_time"]).dt.date
+            daily_equity = trades_df.groupby("date")["capital_after"].last().reset_index()
+            daily_equity = daily_equity.sort_values("date")
+            chart_dates = pd.to_datetime(daily_equity["date"]).tolist()
+            chart_values = daily_equity["capital_after"].tolist()
+
             # Parse dates for benchmark calculation (strip tz for compatibility)
-            start_dt = pd.Timestamp(exit_times[0])
-            end_dt = pd.Timestamp(exit_times[-1])
+            start_dt = pd.Timestamp(chart_dates[0])
+            end_dt = pd.Timestamp(chart_dates[-1])
             if start_dt.tzinfo is not None:
                 start_dt = start_dt.tz_localize(None)
             if end_dt.tzinfo is not None:
@@ -331,13 +339,12 @@ class CommandProcessor:
 
             fig = go.Figure()
 
-            # Strategy equity curve
+            # Strategy equity curve (daily end-of-day snapshots)
             fig.add_trace(go.Scatter(
-                x=exit_times, y=capital_values,
-                mode='lines+markers',
+                x=chart_dates, y=chart_values,
+                mode='lines',
                 name='Strategy',
                 line=dict(color='#1f77b4', width=2),
-                marker=dict(size=4),
             ))
 
             # Benchmarks — run with timeout to avoid hanging on slow API calls
@@ -397,11 +404,17 @@ class CommandProcessor:
                 xaxis_title='Date',
                 yaxis_title='Portfolio Value ($)',
                 hovermode='x unified',
-                height=450,
+                height=500,
                 showlegend=True,
                 template='plotly_dark',
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(26,26,46,0.8)',
+                legend=dict(
+                    yanchor="top", y=0.99,
+                    xanchor="left", x=0.01,
+                    bgcolor="rgba(0,0,0,0.5)",
+                ),
+                margin=dict(t=50, b=50, l=60, r=80),
             )
 
             self.app._last_chart_json = pio.to_json(fig)

@@ -1,132 +1,78 @@
-# Strategy Simulator
+# AlpacaCode
 
-A comprehensive Python Streamlit MVP application for backtesting and paper trading various trading strategies via Alpaca Markets API.
+[![PyPI version](https://img.shields.io/pypi/v/alpacacode.svg)](https://pypi.org/project/alpacacode/)
+[![Python](https://img.shields.io/pypi/pyversions/alpacacode.svg)](https://pypi.org/project/alpacacode/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Trading strategy backtester, paper trader, and research CLI powered by [Alpaca Markets](https://alpaca.markets/).
+
+## Install
+
+```bash
+pip install alpacacode
+```
+
+## Quick Start
+
+```bash
+# Create .env with your API keys
+cat > .env << 'EOF'
+ALPACA_PAPER_API_KEY=your_key
+ALPACA_PAPER_SECRET_KEY=your_secret
+MASSIVE_API_KEY=your_massive_key
+DATABASE_URL=postgresql://user:pass@host/dbname
+EOF
+
+# Launch the CLI
+alpacacode
+```
 
 ## Features
 
-- **Buy The Dip Strategy**: Backtest buy-the-dip strategy on Mag 7 stocks, S&P 500 members, and sector ETFs
-- **VIX Fear Index Strategy**: Trade based on market volatility (VIX index)
-- **AI Strategy Assistant**: Powered by XAI Grok for strategy development
-- **Alpaca Trader**: Paper and live trading interface with scheduling
+- **Parameterized backtesting** — grid search over dip threshold, take profit, hold days, and stop loss to find optimal strategy parameters ranked by Sharpe ratio
+- **Paper trading** — continuous background trading on Alpaca's paper API with daily P&L email reports
+- **Market research** — news, company profiles, financials, technicals, analyst ratings, and valuation comparisons
+- **Multi-agent system** — backtest, validate, paper trade, reconcile, and report via an orchestrated agent pipeline
+- **Extended hours & intraday exits** — pre/after-market trading (4AM-8PM ET) and 5-minute bar TP/SL timing
+- **Interactive CLI** — Rich-powered terminal with streaming log output and Plotly equity curve charts
 
-## Installation
+## Commands
 
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your API keys
-streamlit run Home.py
 ```
+agent:backtest lookback:1m          Run parameterized backtest
+agent:paper duration:7d             Paper trade in background
+agent:full lookback:1m duration:1m  Full cycle (BT > Validate > PT > Validate)
+agent:validate run-id:<uuid>        Validate a backtest or paper trade run
+agent:reconcile window:7d           Reconcile DB vs Alpaca positions
 
-## Paper Trading - Buy the Dip
+news:TSLA                           Company news headlines
+price:TSLA                          Quote and technicals
+financials:AAPL                     Income and balance sheet
+analysts:AAPL                       Ratings and price targets
+valuation:AAPL,MSFT                 Side-by-side valuation comparison
+movers                              Top market gainers and losers
 
-Run the buy-the-dip strategy against your Alpaca paper trading account using the CLI trader.
-
-### Configuration
-
-The CLI trader uses `config/parameters.yaml` for all strategy parameters. Edit this file to customize your trading settings:
-
-```yaml
-buy_the_dip:
-  symbols: "AAPL,MSFT,GOOGL,AMZN,META,TSLA,NVDA"  # Stocks to trade
-  dip_threshold: 1.0  # Percentage dip to trigger buy (1.0 = 1%)
-  take_profit_threshold: 1.0  # Percentage gain to take profit (1.0 = 1%)
-  capital_per_trade: 1000.0  # Capital per trade in dollars
-  max_position_pct: 5.0  # Max position size as % of buying power
-
-vix:
-  symbols: "AAPL,MSFT,GOOGL,AMZN,META,TSLA,NVDA"
-  vix_threshold: 20.0
-  capital_per_trade: 1000.0
-
-general:
-  check_order_status_interval: 60  # Seconds between order status checks
-  polling_interval: 300  # Seconds between strategy execution checks
+trades                              Recent trades from DB
+runs                                Recent backtest/paper runs
+agent:top                           Rank strategies by Sharpe ratio
 ```
-
-**Configuration Parameters:**
-- `symbols`: Comma-separated list of stock tickers to trade
-- `dip_threshold`: Minimum percentage drop from recent high to trigger a buy order
-- `take_profit_threshold`: Target percentage gain to take profit (future feature)
-- `capital_per_trade`: Amount of capital to allocate per trade
-- `max_position_pct`: Maximum position size as percentage of total buying power
-- `check_order_status_interval`: How often to check order status (seconds)
-- `polling_interval`: How often to run strategy checks when market is open (seconds)
-
-### Setup
-
-1) Configure environment variables
-
-```bash
-cp .env.example .env
-# Edit .env and set at least:
-# ALPACA_PAPER_API_KEY=your_paper_key
-# ALPACA_PAPER_SECRET_KEY=your_paper_secret
-# Optional: for intraday prices (recommended for live/loop mode)
-# EODHD_API_KEY=your_eodhd_api_key
-# MASSIVE_API_KEY=your_massive_key
-```
-
-2) Configure trading parameters (optional)
-
-Edit `config/parameters.yaml` to customize:
-- Which stocks to trade (`symbols`)
-- Dip threshold (`dip_threshold`)
-- Take profit threshold (`take_profit_threshold`)
-- Capital per trade (`capital_per_trade`)
-- Other strategy parameters
-
-3) Activate your virtual environment (optional, if you use one)
-
-```bash
-source .venv/bin/activate
-```
-
-### Usage
-
-**One-off execution:**
-
-```bash
-python tasks/cli_trader.py --strategy buy-the-dip --mode paper
-```
-
-**Continuous mode** (polls market when open, uses EODHD intraday prices):
-
-```bash
-python tasks/cli_trader.py --strategy buy-the-dip --mode paper --interval 300
-```
-
-**Optional CLI flags** (override config file values):
-  - `--symbols AAPL,MSFT,NVDA` Override symbols from config
-  - `--capital 1000` Override capital per trade
-  - `--dip-threshold 1.0` Override dip threshold
-  - `--take-profit-threshold 1.0` Override take profit threshold
-  - `--dry-run` Simulate without placing orders
-  - `--once` Run once and exit (default: run continuously)
-  - `--interval 300` Override polling interval (seconds)
-
-**Examples:**
-
-```bash
-# Use config file defaults
-python tasks/cli_trader.py --strategy buy-the-dip --mode paper
-
-# Override symbols and capital from command line
-python tasks/cli_trader.py --strategy buy-the-dip --mode paper --symbols AAPL,MSFT,NVDA --capital 2000
-
-# Test with dry-run first
-python tasks/cli_trader.py --strategy buy-the-dip --mode paper --dry-run
-
-# Run once and exit
-python tasks/cli_trader.py --strategy buy-the-dip --mode paper --once
-```
-
-**Logs:**
-- Console output: Real-time trading activity
-- `trading.log`: Detailed log file with all operations
-- Order status checks: Every 60 seconds (configurable) when orders are pending
 
 ## Documentation
 
-See full documentation in the application.
+Full user guide: [cli.alpacacode.dev/guide](https://cli.alpacacode.dev/guide)
 
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ALPACA_PAPER_API_KEY` | Yes | Alpaca paper trading API key |
+| `ALPACA_PAPER_SECRET_KEY` | Yes | Alpaca paper trading secret |
+| `MASSIVE_API_KEY` | Yes | Polygon-compatible market data key |
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `XAI_API_KEY` | No | XAI Grok for AI research commands |
+| `EODHD_API_KEY` | No | EOD Historical Data (intraday prices) |
+| `POSTMARK_API_KEY` | No | Email notifications for paper trading |
+
+## License
+
+MIT

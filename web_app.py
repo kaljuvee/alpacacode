@@ -972,6 +972,7 @@ def guide_get(session):
 
 @rt("/download")
 def download_get(session):
+    pip_cmd = "pip install alpacacode"
     curl_cmd = "curl -fsSL https://cli.alpacacode.dev/install.sh | bash"
     return (
         Title("Download — AlpacaCode"),
@@ -979,29 +980,40 @@ def download_get(session):
             _nav(session),
             Div(
                 H2("Install AlpacaCode"),
-                P("One-line install (requires Python 3.13+):", style="color: var(--pico-muted-color);"),
+                H4("pip (recommended)"),
+                P("Install from PyPI (requires Python 3.11+):", style="color: var(--pico-muted-color);"),
+                Div(
+                    Pre(Code(pip_cmd), id="pip-cmd"),
+                    Button("Copy", cls="copy-btn", onclick="navigator.clipboard.writeText(document.getElementById('pip-cmd').textContent)"),
+                    style="position: relative;",
+                ),
+                P("After install, create a ", Code(".env"), " file with your API keys, then run:",
+                  style="color: var(--pico-muted-color); margin-top: 0.5rem;"),
+                Pre(Code("alpacacode")),
+                Hr(),
+                H4("One-line install (alternative)"),
                 Div(
                     Pre(Code(curl_cmd), id="curl-cmd"),
                     Button("Copy", cls="copy-btn", onclick="navigator.clipboard.writeText(document.getElementById('curl-cmd').textContent)"),
                     style="position: relative;",
                 ),
                 Hr(),
-                H4("Manual install"),
+                H4("From source"),
                 Div("""
 ```bash
 git clone https://github.com/kaljuvee/alpacacode.git ~/.alpacacode
 cd ~/.alpacacode
-python3.13 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 cp .env.example .env   # edit with your API keys
-python alpaca_code.py
+alpacacode
 ```
 """, cls="marked"),
                 Hr(),
                 H4("Requirements"),
                 Ul(
-                    Li("Python 3.13+"),
+                    Li("Python 3.11+"),
                     Li("PostgreSQL (for trade history)"),
                     Li("Alpaca paper trading account"),
                     Li("Massive (Polygon) API key for market data"),

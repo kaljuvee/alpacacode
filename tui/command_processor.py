@@ -66,9 +66,11 @@ class CommandProcessor:
         elif cmd_lower == "runs":
             return self._agent_runs()
 
-        # Market research commands (positional ticker syntax)
+        # Market research commands (colon syntax: news:TSLA, profile:AAPL)
         research_cmds = ("news", "profile", "financials", "price", "movers", "analysts", "valuation")
-        if cmd_lower.split()[0] in research_cmds:
+        first_word = cmd_lower.split()[0]
+        research_base = first_word.split(":")[0]
+        if research_base in research_cmds:
             return await self._handle_research_command(user_input)
 
         # Legacy backtest commands
@@ -89,16 +91,25 @@ class CommandProcessor:
     # ------------------------------------------------------------------
 
     async def _handle_research_command(self, user_input: str) -> str:
-        """Dispatch market research commands: news, profile, price, etc."""
+        """Dispatch market research commands: news:TSLA, profile:AAPL, etc."""
         import asyncio
         from utils.market_research_util import MarketResearch
 
         parts = user_input.strip().split()
-        cmd = parts[0].lower()
+        first = parts[0]
         research = MarketResearch()
 
-        # Parse: positional ticker(s) + key:value params
-        tickers = []
+        # Parse colon syntax: "news:TSLA" → cmd="news", ticker="TSLA"
+        # Also supports legacy positional: "news TSLA"
+        if ":" in first:
+            cmd, ticker_part = first.split(":", 1)
+            cmd = cmd.lower()
+            tickers = [ticker_part] if ticker_part else []
+        else:
+            cmd = first.lower()
+            tickers = []
+
+        # Remaining parts: key:value params or positional tickers (legacy)
         params = {}
         for part in parts[1:]:
             if ":" in part:
@@ -900,14 +911,14 @@ class CommandProcessor:
         col3.add_column(style="dim")
 
         col3.add_row("[bold white]Research[/bold white]", "")
-        col3.add_row("news TSLA", "company news")
+        col3.add_row("news:TSLA", "company news")
         col3.add_row("  provider:xai|tavily", "force provider")
-        col3.add_row("profile TSLA", "company profile")
-        col3.add_row("financials AAPL", "income & balance sheet")
-        col3.add_row("price TSLA", "quote & technicals")
+        col3.add_row("profile:TSLA", "company profile")
+        col3.add_row("financials:AAPL", "income & balance sheet")
+        col3.add_row("price:TSLA", "quote & technicals")
         col3.add_row("movers", "top gainers & losers")
-        col3.add_row("analysts AAPL", "ratings & targets")
-        col3.add_row("valuation AAPL,MSFT", "valuation comparison")
+        col3.add_row("analysts:AAPL", "ratings & targets")
+        col3.add_row("valuation:AAPL,MSFT", "valuation comparison")
         col3.add_row("", "")
         col3.add_row("[bold white]Options[/bold white]", "")
         col3.add_row("hours:extended", "4AM-8PM ET")

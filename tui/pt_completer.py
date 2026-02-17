@@ -34,24 +34,24 @@ TEMPLATES = [
     ("trades",                                             "show trades from DB"),
     ("runs",                                               "show runs from DB"),
     ("help",                                               "show help"),
-    ("news TSLA",                                          "Tesla news"),
-    ("news AAPL",                                          "Apple news"),
+    ("news:TSLA",                                          "Tesla news"),
+    ("news:AAPL",                                          "Apple news"),
     ("news",                                               "general market news"),
-    ("news TSLA provider:xai",                             "Tesla news via XAI Grok"),
-    ("news TSLA provider:tavily",                          "Tesla news via Tavily"),
-    ("profile TSLA",                                       "Tesla company profile"),
-    ("profile AAPL",                                       "Apple company profile"),
-    ("financials AAPL",                                    "Apple financials (annual)"),
-    ("financials AAPL period:quarterly",                   "Apple quarterly financials"),
-    ("price TSLA",                                         "Tesla price & technicals"),
-    ("price AAPL",                                         "Apple price & technicals"),
+    ("news:TSLA provider:xai",                             "Tesla news via XAI Grok"),
+    ("news:TSLA provider:tavily",                          "Tesla news via Tavily"),
+    ("profile:TSLA",                                       "Tesla company profile"),
+    ("profile:AAPL",                                       "Apple company profile"),
+    ("financials:AAPL",                                    "Apple financials (annual)"),
+    ("financials:AAPL period:quarterly",                   "Apple quarterly financials"),
+    ("price:TSLA",                                         "Tesla price & technicals"),
+    ("price:AAPL",                                         "Apple price & technicals"),
     ("movers",                                             "top gainers & losers"),
-    ("movers gainers",                                     "top gainers only"),
-    ("movers losers",                                      "top losers only"),
-    ("analysts AAPL",                                      "Apple analyst ratings"),
-    ("analysts TSLA",                                      "Tesla analyst ratings"),
-    ("valuation AAPL",                                     "Apple valuation metrics"),
-    ("valuation AAPL,MSFT,GOOGL",                          "compare valuations"),
+    ("movers:gainers",                                     "top gainers only"),
+    ("movers:losers",                                      "top losers only"),
+    ("analysts:AAPL",                                      "Apple analyst ratings"),
+    ("analysts:TSLA",                                      "Tesla analyst ratings"),
+    ("valuation:AAPL",                                     "Apple valuation metrics"),
+    ("valuation:AAPL,MSFT,GOOGL",                          "compare valuations"),
 ]
 
 
@@ -76,7 +76,11 @@ class PTCommandCompleter(Completer):
             return
 
         # Case 2: Command known, completing parameters
+        # Support colon syntax: "news:TSLA" → base command "news"
         cmd = parts[0].lower()
+        cmd_base = cmd.split(":")[0]
+        if cmd not in COMMANDS and cmd_base in COMMANDS:
+            cmd = cmd_base
         if cmd not in COMMANDS:
             return
         param_defs = COMMANDS[cmd]

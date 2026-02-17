@@ -168,6 +168,27 @@ async def paper(req: PaperRequest):
 async def status():
     return await _run_command("agent:status")
 
+@app.get("/news", response_model=ApiResponse)
+async def news(ticker: Optional[str] = None, provider: Optional[str] = None,
+               limit: int = 10):
+    cmd = f"news:{ticker}" if ticker else "news"
+    parts = {"provider": provider, "limit": limit}
+    cmd = _build_cmd(cmd, parts)
+    return await _run_command(cmd)
+
+@app.get("/price", response_model=ApiResponse)
+async def price(ticker: str):
+    return await _run_command(f"price:{ticker}")
+
+@app.get("/profile", response_model=ApiResponse)
+async def profile(ticker: str):
+    return await _run_command(f"profile:{ticker}")
+
+@app.get("/movers", response_model=ApiResponse)
+async def movers(direction: Optional[str] = None):
+    cmd = f"movers:{direction}" if direction else "movers"
+    return await _run_command(cmd)
+
 # ---------------------------------------------------------------------------
 # Serve install.sh
 # ---------------------------------------------------------------------------

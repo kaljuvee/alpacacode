@@ -229,14 +229,14 @@ def _help_html():
     # Column 3: Research & Options
     col3 = Div(
         *_section("Research", [
-            ("news TSLA", "company news"),
+            ("news:TSLA", "company news"),
             ("  provider:xai|tavily", "force news provider"),
-            ("profile TSLA", "company profile"),
-            ("financials AAPL", "income & balance sheet"),
-            ("price TSLA", "quote & technicals"),
+            ("profile:TSLA", "company profile"),
+            ("financials:AAPL", "income & balance sheet"),
+            ("price:TSLA", "quote & technicals"),
             ("movers", "top gainers & losers"),
-            ("analysts AAPL", "ratings & targets"),
-            ("valuation AAPL,MSFT", "valuation comparison"),
+            ("analysts:AAPL", "ratings & targets"),
+            ("valuation:AAPL,MSFT", "valuation comparison"),
         ]),
         *_section("Options", [
             ("hours:extended", "4AM-8PM ET"),

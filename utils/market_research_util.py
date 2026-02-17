@@ -98,16 +98,18 @@ class MarketResearch:
 
         Args:
             provider: Force a specific provider ("polygon", "xai", "tavily").
-                      If None, tries Polygon → XAI → Tavily in order.
+                      If None, tries XAI → Tavily → Polygon in order
+                      (XAI/Tavily return fresher results than Polygon free tier).
         """
         if ticker:
             ticker = ticker.upper()
 
         # Map of provider → (fetch_fn, display_name)
+        # XAI and Tavily first — Polygon free tier often returns stale news
         providers = [
-            ("polygon", self._news_polygon, "Polygon"),
             ("xai", self._news_xai, "XAI Grok"),
             ("tavily", self._news_tavily, "Tavily"),
+            ("polygon", self._news_polygon, "Polygon"),
         ]
 
         # If a specific provider is requested, try only that one
@@ -157,15 +159,20 @@ class MarketResearch:
         try:
             from openai import OpenAI
             client = OpenAI(api_key=self.xai_key, base_url="https://api.x.ai/v1")
-            topic = f"{ticker} stock" if ticker else "US stock market"
+            topic = f"{ticker} ({ticker} stock)" if ticker else "US stock market"
+            today = datetime.now().strftime("%B %d, %Y")
             resp = client.chat.completions.create(
                 model="grok-3-mini-fast",
                 messages=[{
                     "role": "user",
                     "content": (
-                        f"Provide the {limit} most recent news headlines about {topic}. "
+                        f"Today is {today}. "
+                        f"List the {limit} most recent and important news headlines about {topic} "
+                        "from the last 24 hours. Include breaking news, earnings, analyst upgrades/downgrades, "
+                        "SEC filings, and market-moving events. "
                         "For each item return a JSON array of objects with keys: "
-                        '"time" (relative like "2h ago"), "title", "source". '
+                        '"time" (e.g. "2h ago" or "Today 3:15 PM"), "title" (factual headline), '
+                        '"source" (publication name like Reuters, Bloomberg, CNBC). '
                         "Return ONLY the JSON array, no other text."
                     ),
                 }],
@@ -188,13 +195,18 @@ class MarketResearch:
         if not self.tavily_key:
             return None
         try:
-            query = f"{ticker} stock news today" if ticker else "US stock market news today"
+            today = datetime.now().strftime("%B %d, %Y")
+            if ticker:
+                query = f"{ticker} stock latest news headlines {today}"
+            else:
+                query = f"US stock market breaking news headlines {today}"
             r = requests.post("https://api.tavily.com/search", json={
                 "api_key": self.tavily_key,
                 "query": query,
                 "search_depth": "advanced",
                 "topic": "news",
                 "max_results": limit,
+                "days": 3,
             }, timeout=15)
             r.raise_for_status()
             data = r.json()

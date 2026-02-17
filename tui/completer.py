@@ -51,7 +51,7 @@ COMMANDS = {
     "agent:runs": {},
     "agent:trades": {"run-id": None, "type": ["backtest", "paper_trade"], "limit": None},
     "agent:stop": {},
-    "news": {"limit": ["5", "10", "20"], "provider": ["polygon", "xai", "tavily"]},
+    "news": {"limit": ["5", "10", "20"], "provider": ["xai", "tavily", "polygon"]},
     "profile": {},
     "financials": {"period": ["annual", "quarterly"]},
     "price": {},
@@ -112,7 +112,11 @@ class CommandCompleter:
             return [prefix + cmd + " " for cmd in sorted(COMMANDS) if cmd.startswith(stripped_text)]
 
         # Case 2: Command known, completing parameters
+        # Support colon syntax: "news:TSLA" → base command "news"
         cmd = parts[0].lower()
+        cmd_base = cmd.split(":")[0]
+        if cmd not in COMMANDS and cmd_base in COMMANDS:
+            cmd = cmd_base
         if cmd not in COMMANDS:
             return []
         param_defs = COMMANDS[cmd]

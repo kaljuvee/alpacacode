@@ -271,6 +271,9 @@ class CommandProcessor:
         if hasattr(self.app, '_suggested_command'):
             self.app._suggested_command = f"agent:validate run-id:{run_id}"
 
+        # Generate equity chart for web UI (stored on app, ignored by CLI)
+        self._build_equity_chart(result.get("trades", []), config)
+
         return (
             f"# Backtest Complete\n\n"
             f"- **Run ID**: `{run_id}`\n"
@@ -289,6 +292,123 @@ class CommandProcessor:
             f"tp={p.get('take_profit')}, hold={p.get('hold_days')}\n\n"
             f"Press Enter to validate, or type a new command."
         )
+
+    def _build_equity_chart(self, trades: list, config: Dict) -> None:
+        """Build Plotly equity chart JSON from backtest trades and store on app."""
+        try:
+            import plotly.graph_objects as go
+            import plotly.io as pio
+            import pandas as pd
+            from utils.backtester_util import calculate_buy_and_hold, calculate_single_buy_and_hold
+
+            if not trades:
+                return
+
+            # Sort trades by exit_time
+            trades_sorted = sorted(trades, key=lambda t: str(t.get("exit_time", "")))
+
+            exit_times = [t.get("exit_time") for t in trades_sorted]
+            capital_values = [t.get("capital_after") for t in trades_sorted]
+
+            # Filter out None values
+            valid = [(t, c) for t, c in zip(exit_times, capital_values) if t is not None and c is not None]
+            if not valid:
+                return
+
+            exit_times, capital_values = zip(*valid)
+            exit_times = list(exit_times)
+            capital_values = list(capital_values)
+
+            # Parse dates for benchmark calculation (strip tz for compatibility)
+            start_dt = pd.Timestamp(exit_times[0])
+            end_dt = pd.Timestamp(exit_times[-1])
+            if start_dt.tzinfo is not None:
+                start_dt = start_dt.tz_localize(None)
+            if end_dt.tzinfo is not None:
+                end_dt = end_dt.tz_localize(None)
+            initial_capital = config.get("initial_capital", 10000)
+            symbols = config.get("symbols", [])
+
+            fig = go.Figure()
+
+            # Strategy equity curve
+            fig.add_trace(go.Scatter(
+                x=exit_times, y=capital_values,
+                mode='lines+markers',
+                name='Strategy',
+                line=dict(color='#1f77b4', width=2),
+                marker=dict(size=4),
+            ))
+
+            # Benchmarks — run with timeout to avoid hanging on slow API calls
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+
+            def _fetch_spy():
+                return calculate_single_buy_and_hold(
+                    'SPY', start_dt.to_pydatetime(), end_dt.to_pydatetime(), initial_capital
+                )
+
+            def _fetch_portfolio():
+                return calculate_buy_and_hold(
+                    symbols, start_dt.to_pydatetime(), end_dt.to_pydatetime(), initial_capital
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                # SPY buy & hold benchmark
+                try:
+                    spy_dates, spy_values = pool.submit(_fetch_spy).result(timeout=15)
+                    if not spy_values.empty:
+                        fig.add_trace(go.Scatter(
+                            x=spy_dates.tolist(), y=spy_values.tolist(),
+                            mode='lines',
+                            name='Buy & Hold (SPY)',
+                            line=dict(color='#ff7f0e', width=2, dash='dash'),
+                        ))
+                except (Exception, FuturesTimeout):
+                    pass
+
+                # Portfolio buy & hold benchmark
+                try:
+                    if symbols:
+                        pf_dates, pf_values = pool.submit(_fetch_portfolio).result(timeout=15)
+                        if not pf_values.empty:
+                            label = ', '.join(symbols[:3])
+                            if len(symbols) > 3:
+                                label += '...'
+                            fig.add_trace(go.Scatter(
+                                x=pf_dates.tolist(), y=pf_values.tolist(),
+                                mode='lines',
+                                name=f'Buy & Hold ({label})',
+                                line=dict(color='#2ca02c', width=2, dash='dot'),
+                            ))
+                except (Exception, FuturesTimeout):
+                    pass
+
+            # Initial capital line
+            fig.add_hline(
+                y=initial_capital,
+                line_dash="dash", line_color="gray",
+                annotation_text="Initial Capital",
+                annotation_position="right",
+            )
+
+            fig.update_layout(
+                title='Portfolio Value Over Time',
+                xaxis_title='Date',
+                yaxis_title='Portfolio Value ($)',
+                hovermode='x unified',
+                height=450,
+                showlegend=True,
+                template='plotly_dark',
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(26,26,46,0.8)',
+            )
+
+            self.app._last_chart_json = pio.to_json(fig)
+
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Could not build equity chart: {e}")
 
     # ------------------------------------------------------------------
     # agent:validate

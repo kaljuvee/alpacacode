@@ -52,6 +52,7 @@ cli = StrategyCLI()
 cli._log_capture = LogCapture()
 cli._cmd_task = None      # asyncio.Task for current long-running command
 cli._cmd_result = None    # markdown result when command completes
+cli._last_chart_json = None  # Plotly JSON for equity curve chart
 
 # Commands that trigger background streaming
 _STREAMING_COMMANDS = {"agent:backtest", "agent:paper", "agent:full", "agent:validate", "agent:reconcile"}
@@ -140,6 +141,7 @@ nav.top-nav .nav-links a:hover { color: var(--pico-primary); }
 .log-console { max-height: 400px; overflow-y: auto; background: #1a1a2e;
                border-radius: 0.5rem; padding: 0.5rem; margin-top: 0.5rem; }
 .log-pre { color: #8b949e; font-size: 0.8em; margin: 0; white-space: pre-wrap; word-break: break-word; }
+.backtest-chart { margin-top: 1rem; border-radius: 0.5rem; }
 """)
 
 _js = Script("""
@@ -164,7 +166,9 @@ document.addEventListener('htmx:afterSwap', function(evt) {
 });
 """)
 
-app, rt = fast_app(hdrs=[_theme, MarkdownJS(), _css, _js])
+_plotly_cdn = Script(src="https://cdn.plot.ly/plotly-2.35.2.min.js")
+
+app, rt = fast_app(hdrs=[_theme, MarkdownJS(), _css, _js, _plotly_cdn])
 
 # ---------------------------------------------------------------------------
 # Help — 3-column HTML grid (mirrors Rich CLI help layout)
@@ -447,11 +451,28 @@ def logs_get():
 
     if cmd_done and not bg_running and cli._cmd_result is not None:
         # Command fully complete — return result and stop polling (HTTP 286)
-        result_html = Div(
+        chart_html = None
+        chart_json = getattr(cli, '_last_chart_json', None)
+        if chart_json:
+            import json
+            chart_data = json.loads(chart_json)
+            data_js = json.dumps(chart_data.get("data", []))
+            layout_js = json.dumps(chart_data.get("layout", {}))
+            chart_html = NotStr(
+                f'<div id="backtest-chart" class="backtest-chart"></div>'
+                f'<script>Plotly.newPlot("backtest-chart", {data_js}, {layout_js}, '
+                f'{{"responsive": true}});</script>'
+            )
+            cli._last_chart_json = None
+
+        parts = [
             Pre(log_text, cls="log-pre"),
             Hr(),
             Div(cli._cmd_result, cls="marked"),
-        )
+        ]
+        if chart_html:
+            parts.append(chart_html)
+        result_html = Div(*parts)
         cli._cmd_result = None  # clear for next run
         return Response(
             to_xml(result_html),

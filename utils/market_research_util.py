@@ -188,7 +188,7 @@ class MarketResearch:
                 return [{"time": i.get("time", ""), "title": i.get("title", ""),
                           "source": i.get("source", ""), "url": ""} for i in items[:limit]]
         except Exception as e:
-            logger.debug(f"XAI news: {e}")
+            logger.warning(f"XAI news failed: {e}")
         return None
 
     def _news_tavily(self, ticker, limit):
@@ -230,7 +230,7 @@ class MarketResearch:
                 })
             return articles if articles else None
         except Exception as e:
-            logger.debug(f"Tavily news: {e}")
+            logger.warning(f"Tavily news failed: {e}")
         return None
 
     def _format_news(self, ticker, articles, provider="Polygon"):

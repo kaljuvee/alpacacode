@@ -143,6 +143,26 @@ nav.top-nav .nav-links a:hover { color: var(--pico-primary); }
                border-radius: 0.5rem; padding: 0.5rem; margin-top: 0.5rem; }
 .log-pre { color: #8b949e; font-size: 0.8em; margin: 0; white-space: pre-wrap; word-break: break-word; }
 .backtest-chart { margin-top: 1rem; border-radius: 0.5rem; }
+
+/* User guide page */
+.guide { max-width: 760px; margin: 0 auto; font-size: 0.9em; line-height: 1.6; }
+.guide h2 { margin-top: 2rem; border-bottom: 1px solid var(--pico-muted-border-color); padding-bottom: 0.3rem; }
+.guide h3 { margin-top: 1.5rem; color: var(--pico-primary); }
+.guide code { background: var(--pico-card-background-color); padding: 0.1em 0.35em; border-radius: 0.2rem; font-size: 0.9em; }
+.guide pre { background: #1a1a2e; padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; }
+.guide pre code { background: none; padding: 0; font-size: 0.85em; color: #8b949e; }
+.guide table { font-size: 0.85em; margin: 0.5rem 0 1rem; }
+.guide .toc { background: var(--pico-card-background-color); padding: 1rem 1.5rem; border-radius: 0.5rem;
+              border: 1px solid var(--pico-muted-border-color); margin-bottom: 1.5rem; }
+.guide .toc ul { margin: 0.3rem 0 0 1rem; padding: 0; }
+.guide .toc li { margin: 0.2rem 0; }
+.guide .toc a { color: var(--pico-primary); text-decoration: none; font-size: 0.9em; }
+.guide .toc a:hover { text-decoration: underline; }
+.guide .param-grid { background: var(--pico-card-background-color); padding: 0.75rem 1rem; border-radius: 0.5rem;
+                     border-left: 3px solid var(--pico-primary); margin: 0.5rem 0 1rem; }
+.guide .tip { background: rgba(46, 160, 67, 0.1); padding: 0.5rem 1rem; border-radius: 0.5rem;
+              border-left: 3px solid #2ea043; margin: 0.5rem 0; }
+.guide .tip::before { content: "Tip: "; font-weight: bold; color: #2ea043; }
 """)
 
 _js = Script("""
@@ -267,6 +287,7 @@ def _nav(session):
     """Build the top navigation bar."""
     user = session.get("user") if session else None
     links = [
+        A("Guide", href="/guide"),
         A("Dashboard", href="https://app.alpacacode.dev", target="_blank"),
         A("Download", href="/download"),
         A("Screenshots", href="/screenshots"),
@@ -535,6 +556,406 @@ else:
         session.pop("user", None)
         session["query_count"] = 0
         return RedirectResponse("/")
+
+
+# ---------------------------------------------------------------------------
+# User Guide page
+# ---------------------------------------------------------------------------
+
+
+def _guide_toc():
+    """Table of contents with anchor links."""
+    return Div(
+        H4("Table of Contents"),
+        Ul(
+            Li(A("Backtesting", href="#backtest")),
+            Ul(
+                Li(A("Quick Start", href="#bt-quickstart")),
+                Li(A("Parameter Grid", href="#bt-grid")),
+                Li(A("Parameters Reference", href="#bt-params")),
+                Li(A("Reading Results", href="#bt-results")),
+                Li(A("Equity Curve Chart", href="#bt-chart")),
+            ),
+            Li(A("Paper Trading", href="#paper")),
+            Ul(
+                Li(A("Starting a Session", href="#pt-start")),
+                Li(A("Monitoring & Stopping", href="#pt-monitor")),
+                Li(A("Email Reports", href="#pt-email")),
+            ),
+            Li(A("Full Cycle", href="#full")),
+            Li(A("Validation", href="#validate")),
+            Li(A("Reconciliation", href="#reconcile")),
+            Li(A("Research Commands", href="#research")),
+            Ul(
+                Li(A("News", href="#r-news")),
+                Li(A("Company Profile", href="#r-profile")),
+                Li(A("Financials", href="#r-financials")),
+                Li(A("Price & Technicals", href="#r-price")),
+                Li(A("Market Movers", href="#r-movers")),
+                Li(A("Analyst Ratings", href="#r-analysts")),
+                Li(A("Valuation Comparison", href="#r-valuation")),
+            ),
+            Li(A("Query & Reporting", href="#query")),
+            Ul(
+                Li(A("Trades & Runs", href="#q-trades")),
+                Li(A("Performance Reports", href="#q-report")),
+                Li(A("Top Strategies", href="#q-top")),
+            ),
+            Li(A("Options & Flags", href="#options")),
+            Ul(
+                Li(A("Extended Hours", href="#o-hours")),
+                Li(A("Intraday Exits", href="#o-intraday")),
+                Li(A("PDT Rule", href="#o-pdt")),
+            ),
+        ),
+        cls="toc",
+    )
+
+
+def _guide_backtest():
+    """Backtest section."""
+    return (
+        H2("Backtesting", id="backtest"),
+
+        H3("Quick Start", id="bt-quickstart"),
+        P("Run a parameterized backtest across multiple strategy configurations:"),
+        Pre(Code("agent:backtest lookback:1m")),
+        P("This runs the Buy the Dip strategy over the last month using the default "
+          "7 symbols (AAPL, MSFT, GOOGL, AMZN, NVDA, TSLA, META) with $10,000 starting "
+          "capital. The backtester automatically tests multiple parameter combinations and "
+          "reports the best one."),
+
+        H3("Parameter Grid", id="bt-grid"),
+        P("The backtester doesn't run a single configuration — it builds a ",
+          Strong("parameter grid"), " and tests every combination. This is how it finds "
+          "the optimal strategy parameters for the given time period."),
+        Div(
+            P(Strong("Default grid for Buy the Dip:")),
+            NotStr("""<table>
+<thead><tr><th>Parameter</th><th>Values tested</th><th>Count</th></tr></thead>
+<tbody>
+<tr><td><code>dip_threshold</code></td><td>3%, 5%, 7%</td><td>3</td></tr>
+<tr><td><code>take_profit</code></td><td>1%, 1.5%</td><td>2</td></tr>
+<tr><td><code>hold_days</code></td><td>1, 2, 3 days</td><td>3</td></tr>
+<tr><td><code>stop_loss</code></td><td>0.5%</td><td>1</td></tr>
+<tr><td><code>position_size</code></td><td>10%</td><td>1</td></tr>
+</tbody></table>"""),
+            P("Total combinations: 3 x 2 x 3 x 1 x 1 = ", Strong("18 variations")),
+            cls="param-grid",
+        ),
+        P("Each variation runs a full backtest — fetching price data, simulating entries "
+          "and exits, calculating P&L, fees, and risk metrics. The best configuration is "
+          "selected by ", Strong("Sharpe ratio"), " (risk-adjusted return)."),
+        Div("The grid uses itertools.product() internally, so adding more values to any "
+            "parameter multiplies the total. Keep grids reasonable (under ~100 variations) "
+            "to avoid long runtimes.", cls="tip"),
+
+        H3("Parameters Reference", id="bt-params"),
+        NotStr("""<table>
+<thead><tr><th>Parameter</th><th>Default</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>lookback:1m</code></td><td>3m</td><td>Data period — <code>1m</code>, <code>3m</code>, <code>6m</code>, <code>1y</code></td></tr>
+<tr><td><code>symbols:AAPL,TSLA</code></td><td>7 large caps</td><td>Comma-separated ticker list</td></tr>
+<tr><td><code>capital:50000</code></td><td>10000</td><td>Starting capital ($)</td></tr>
+<tr><td><code>strategy:buy_the_dip</code></td><td>buy_the_dip</td><td>Strategy name</td></tr>
+<tr><td><code>hours:extended</code></td><td>regular</td><td>Include pre/after-market (4AM-8PM ET)</td></tr>
+<tr><td><code>intraday_exit:true</code></td><td>false</td><td>Use 5-min bars for precise TP/SL timing</td></tr>
+<tr><td><code>pdt:false</code></td><td>auto</td><td>Disable Pattern Day Trader rule (for &gt;$25k accounts)</td></tr>
+</tbody></table>"""),
+        P(Strong("Examples:")),
+        Pre(Code(
+            "# 1-month backtest, custom symbols\n"
+            "agent:backtest lookback:1m symbols:AAPL,TSLA,NVDA\n\n"
+            "# 6-month backtest with extended hours\n"
+            "agent:backtest lookback:6m hours:extended\n\n"
+            "# Large account, no PDT rule, intraday exits\n"
+            "agent:backtest lookback:3m capital:50000 pdt:false intraday_exit:true"
+        )),
+
+        H3("Reading Results", id="bt-results"),
+        P("After a backtest completes, you'll see a results table:"),
+        NotStr("""<table>
+<thead><tr><th>Metric</th><th>What it means</th></tr></thead>
+<tbody>
+<tr><td><strong>Sharpe Ratio</strong></td><td>Risk-adjusted return. Higher is better. &gt;1 is good, &gt;2 is excellent</td></tr>
+<tr><td><strong>Total Return</strong></td><td>Percentage gain/loss on initial capital</td></tr>
+<tr><td><strong>Annualized Return</strong></td><td>Return projected to a 1-year basis</td></tr>
+<tr><td><strong>Total P&amp;L</strong></td><td>Dollar profit or loss</td></tr>
+<tr><td><strong>Win Rate</strong></td><td>Percentage of trades that were profitable</td></tr>
+<tr><td><strong>Total Trades</strong></td><td>Number of trades executed across all symbols</td></tr>
+<tr><td><strong>Max Drawdown</strong></td><td>Largest peak-to-trough decline. Lower is better</td></tr>
+</tbody></table>"""),
+        P("The ", Strong("Params"), " line shows which parameter combination won: "
+          "dip threshold, take profit target, and hold days."),
+
+        H3("Equity Curve Chart", id="bt-chart"),
+        P("An interactive Plotly chart renders below the results showing:"),
+        Ul(
+            Li(Strong("Strategy"), " (blue solid) — your portfolio value over time"),
+            Li(Strong("Buy & Hold SPY"), " (orange dashed) — S&P 500 benchmark"),
+            Li(Strong("Buy & Hold Portfolio"), " (green dotted) — holding your symbols passively"),
+            Li(Strong("Initial Capital"), " (gray dashed) — starting value reference"),
+        ),
+        P("Hover over the chart to compare values at any date. If the blue line is above "
+          "the others, the strategy outperformed passive investing."),
+    )
+
+
+def _guide_paper():
+    """Paper trading section."""
+    return (
+        H2("Paper Trading", id="paper"),
+
+        H3("Starting a Session", id="pt-start"),
+        P("Paper trading runs continuously in the background, placing real orders on "
+          "Alpaca's paper trading API:"),
+        Pre(Code("agent:paper duration:7d")),
+        P("This monitors your symbols every 5 minutes for 7 days, executing the Buy the "
+          "Dip strategy with real market data — but no real money is at risk."),
+        NotStr("""<table>
+<thead><tr><th>Parameter</th><th>Default</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>duration:7d</code></td><td>7d</td><td>How long to run — <code>1h</code>, <code>1d</code>, <code>7d</code>, <code>1m</code></td></tr>
+<tr><td><code>symbols:AAPL,MSFT</code></td><td>7 large caps</td><td>Tickers to trade</td></tr>
+<tr><td><code>poll:60</code></td><td>300</td><td>Seconds between strategy checks</td></tr>
+<tr><td><code>hours:extended</code></td><td>regular</td><td>Trade pre/after-market</td></tr>
+<tr><td><code>email:false</code></td><td>true</td><td>Disable daily P&amp;L email reports</td></tr>
+<tr><td><code>pdt:false</code></td><td>auto</td><td>Disable PDT rule</td></tr>
+</tbody></table>"""),
+
+        H3("Monitoring & Stopping", id="pt-monitor"),
+        Pre(Code(
+            "agent:status    # check paper trading state\n"
+            "agent:stop      # cancel the background session"
+        )),
+        P("Paper trading logs appear in the console. When the session ends, a summary "
+          "with total trades and P&L is shown."),
+
+        H3("Email Reports", id="pt-email"),
+        P("When enabled (default), a daily P&L summary is emailed via Postmark. "
+          "Requires ", Code("POSTMARK_API_KEY"), ", ", Code("TO_EMAIL"), ", and ",
+          Code("FROM_EMAIL"), " in your ", Code(".env"), " file."),
+    )
+
+
+def _guide_full():
+    """Full cycle section."""
+    return (
+        H2("Full Cycle", id="full"),
+        P("The full cycle chains all phases automatically:"),
+        Pre(Code("agent:full lookback:1m duration:1m")),
+        P("Workflow:"),
+        Ol(
+            Li(Strong("Backtest"), " — find the optimal parameters"),
+            Li(Strong("Validate"), " — check backtest trades for anomalies"),
+            Li(Strong("Paper Trade"), " — deploy the winning config live (paper)"),
+            Li(Strong("Validate"), " — verify paper trades against market data"),
+        ),
+        P("Each phase passes its results to the next. If validation finds issues, "
+          "it attempts up to 10 self-correction iterations before stopping."),
+        NotStr("""<table>
+<thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>lookback:3m</code></td><td>Backtest data period</td></tr>
+<tr><td><code>duration:1m</code></td><td>Paper trading duration</td></tr>
+<tr><td><code>symbols:AAPL,TSLA</code></td><td>Tickers to trade</td></tr>
+<tr><td><code>hours:extended</code></td><td>Extended trading hours</td></tr>
+</tbody></table>"""),
+    )
+
+
+def _guide_validate():
+    """Validation section."""
+    return (
+        H2("Validation", id="validate"),
+        P("Validate backtest or paper trade results against real market data:"),
+        Pre(Code(
+            "agent:validate run-id:abc12345\n"
+            "agent:validate run-id:abc12345 source:paper_trade"
+        )),
+        P("The validator checks:"),
+        Ul(
+            Li("Price accuracy — do entry/exit prices match actual market data?"),
+            Li("P&L math — is profit/loss calculated correctly?"),
+            Li("Market hours — were trades placed during valid trading hours?"),
+            Li("Weekend trades — no trades should occur on weekends"),
+            Li("TP/SL logic — did take-profit and stop-loss triggers fire correctly?"),
+        ),
+        P("If anomalies are found, the validator attempts up to ", Strong("10 self-correction "
+          "iterations"), " to fix them. After 10 failures, it stops and reports the issues "
+          "with suggestions."),
+    )
+
+
+def _guide_reconcile():
+    """Reconciliation section."""
+    return (
+        H2("Reconciliation", id="reconcile"),
+        P("Compare your database records against your actual Alpaca account:"),
+        Pre(Code(
+            "agent:reconcile              # last 7 days\n"
+            "agent:reconcile window:14d   # last 14 days"
+        )),
+        P("Reports:"),
+        Ul(
+            Li(Strong("Position mismatches"), " — DB says you hold X shares but Alpaca disagrees"),
+            Li(Strong("Missing trades"), " — orders in Alpaca not recorded in DB"),
+            Li(Strong("Extra trades"), " — DB trades not found in Alpaca"),
+            Li(Strong("P&L comparison"), " — DB total P&L vs Alpaca equity/cash"),
+        ),
+    )
+
+
+def _guide_research():
+    """Research commands section."""
+    return (
+        H2("Research Commands", id="research"),
+        P("Market research commands use the ", Code("command:TICKER"), " syntax. "
+          "Data is sourced from XAI Grok and Tavily APIs."),
+
+        H3("News", id="r-news"),
+        Pre(Code(
+            "news:TSLA                    # company news (default 10 articles)\n"
+            "news:TSLA limit:20           # more articles\n"
+            "news:TSLA provider:xai       # force XAI Grok provider\n"
+            "news:TSLA provider:tavily    # force Tavily search\n"
+            "news                         # general market news"
+        )),
+        P("Returns headlines with source and date. By default, the system tries XAI first "
+          "and falls back to Tavily."),
+
+        H3("Company Profile", id="r-profile"),
+        Pre(Code("profile:TSLA")),
+        P("Company overview: sector, industry, market cap, description, and key stats."),
+
+        H3("Financials", id="r-financials"),
+        Pre(Code(
+            "financials:AAPL              # annual income & balance sheet\n"
+            "financials:AAPL period:quarterly"
+        )),
+        P("Revenue, net income, EPS, debt, and other fundamental data."),
+
+        H3("Price & Technicals", id="r-price"),
+        Pre(Code("price:TSLA")),
+        P("Current quote, daily change, volume, 52-week range, and technical indicators."),
+
+        H3("Market Movers", id="r-movers"),
+        Pre(Code(
+            "movers              # top gainers and losers\n"
+            "movers gainers      # only gainers\n"
+            "movers losers       # only losers"
+        )),
+        P("Today's biggest price movers in the US market."),
+
+        H3("Analyst Ratings", id="r-analysts"),
+        Pre(Code("analysts:AAPL")),
+        P("Consensus rating (buy/hold/sell), price targets, and recent analyst actions."),
+
+        H3("Valuation Comparison", id="r-valuation"),
+        Pre(Code(
+            "valuation:AAPL              # single stock valuation\n"
+            "valuation:AAPL,MSFT,GOOGL   # side-by-side comparison"
+        )),
+        P("P/E, P/S, P/B, EV/EBITDA, and other valuation multiples. Compare "
+          "multiple tickers to spot relative value."),
+    )
+
+
+def _guide_query():
+    """Query & reporting section."""
+    return (
+        H2("Query & Reporting", id="query"),
+
+        H3("Trades & Runs", id="q-trades"),
+        Pre(Code(
+            "trades                       # recent trades from DB\n"
+            "runs                         # recent backtest/paper runs"
+        )),
+        P("Shows tables from the PostgreSQL database with your trade history "
+          "and run summaries."),
+
+        H3("Performance Reports", id="q-report"),
+        Pre(Code(
+            "agent:report                         # summary of recent runs\n"
+            "agent:report run-id:abc12345         # detailed single-run report\n"
+            "agent:report type:backtest           # filter by trade type\n"
+            "agent:report strategy:btd            # filter by strategy slug prefix"
+        )),
+        P("The summary view shows a compact table with return, Sharpe ratio, P&L, "
+          "and trade count for each run. The detail view shows full metrics for a "
+          "specific run."),
+
+        H3("Top Strategies", id="q-top"),
+        Pre(Code(
+            "agent:top                    # rank all strategy slugs by avg Sharpe\n"
+            "agent:top strategy:btd       # filter by slug prefix"
+        )),
+        P("Aggregates across all runs to rank strategy configurations. Shows average "
+          "Sharpe ratio, return, win rate, drawdown, and how many times each config "
+          "has been tested."),
+    )
+
+
+def _guide_options():
+    """Options & flags section."""
+    return (
+        H2("Options & Flags", id="options"),
+        P("These flags can be appended to backtest, paper trade, and full cycle commands."),
+
+        H3("Extended Hours", id="o-hours"),
+        Pre(Code("agent:backtest lookback:1m hours:extended")),
+        P("Regular hours: 9:30 AM - 4:00 PM ET. Extended hours: 4:00 AM - 8:00 PM ET "
+          "(pre-market + after-hours). Extended hours backtests include more trading "
+          "opportunities but may have lower liquidity and wider spreads."),
+
+        H3("Intraday Exits", id="o-intraday"),
+        Pre(Code("agent:backtest lookback:1m intraday_exit:true")),
+        P("When enabled, the backtester uses ", Strong("5-minute intraday bars"), " to "
+          "determine exactly when take-profit or stop-loss would trigger within each "
+          "trading day. This is more accurate than daily bars (which only check "
+          "open/high/low/close) but takes longer to run."),
+        P("Key behavior: determines which of TP/SL is hit first. No same-day re-entry "
+          "after exit."),
+
+        H3("PDT Rule", id="o-pdt"),
+        Pre(Code("agent:backtest lookback:1m pdt:false")),
+        P("The ", Strong("Pattern Day Trader (PDT)"), " rule is a FINRA regulation: "
+          "accounts under $25,000 are limited to 3 day trades per rolling 5-business-day "
+          "window. AlpacaCode enforces this by default."),
+        P("Set ", Code("pdt:false"), " if your account has $25k+ equity. This removes "
+          "the day-trade limit and allows the strategy to trade more aggressively."),
+    )
+
+
+@rt("/guide")
+def guide_get(session):
+    return (
+        Title("User Guide — AlpacaCode"),
+        Main(
+            _nav(session),
+            Div(
+                H1("User Guide"),
+                P("Complete reference for all AlpacaCode commands. "
+                  "Type any command in the terminal on the ", A("home page", href="/"), ".",
+                  style="color: var(--pico-muted-color);"),
+                _guide_toc(),
+                *_guide_backtest(),
+                *_guide_paper(),
+                *_guide_full(),
+                *_guide_validate(),
+                *_guide_reconcile(),
+                *_guide_research(),
+                *_guide_query(),
+                *_guide_options(),
+                Hr(),
+                P("Need quick help? Type ", Code("help"), " in the terminal for a "
+                  "compact command reference.",
+                  style="color: var(--pico-muted-color); margin-bottom: 2rem;"),
+                cls="guide",
+            ),
+            style="height: auto;",
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

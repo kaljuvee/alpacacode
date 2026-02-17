@@ -53,6 +53,7 @@ cli._log_capture = LogCapture()
 cli._cmd_task = None      # asyncio.Task for current long-running command
 cli._cmd_result = None    # markdown result when command completes
 cli._last_chart_json = None  # Plotly JSON for equity curve chart
+cli._cmd_286_html = None  # cached 286 response to handle HTMX race condition
 
 # Commands that trigger background streaming
 _STREAMING_COMMANDS = {"agent:backtest", "agent:paper", "agent:full", "agent:validate", "agent:reconcile"}
@@ -400,6 +401,7 @@ def _start_streaming_command(command: str):
     # Reset state
     cli._log_capture.clear()
     cli._cmd_result = None
+    cli._cmd_286_html = None
 
     # Attach log handler to root logger
     root_logger = logging.getLogger()
@@ -474,11 +476,20 @@ def logs_get():
             parts.append(chart_html)
         result_html = Div(*parts)
         cli._cmd_result = None  # clear for next run
+        # Cache the 286 HTML so racing HTMX requests also get 286
+        cli._cmd_286_html = to_xml(result_html)
         return Response(
-            to_xml(result_html),
+            cli._cmd_286_html,
             status_code=286,
             headers={"Content-Type": "text/html"},
         )
+
+    # Handle HTMX race: if a 286 was just sent but a concurrent poll arrives,
+    # replay the cached 286 to prevent overwriting results with plain logs
+    if cmd_done and not bg_running and cli._cmd_286_html is not None:
+        html = cli._cmd_286_html
+        cli._cmd_286_html = None  # clear after one replay
+        return Response(html, status_code=286, headers={"Content-Type": "text/html"})
 
     # Still running — return log lines
     return Pre(log_text, cls="log-pre")

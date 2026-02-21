@@ -5,11 +5,11 @@
 ### 1. ✅ New API Keys Added
 
 Updated `.env` and `.env.example` with:
-- **ALPACA_PAPER_API_KEY**: ***REDACTED***
-- **ALPACA_PAPER_SECRET_KEY**: ***REDACTED***
-- **EODHD_API_KEY**: ***REDACTED***
-- **MASSIVE_API_KEY**: ***REDACTED***
-- **DB_URL**: postgresql://***REDACTED***:***REDACTED***@***REDACTED***/indurent_db
+- **ALPACA_PAPER_API_KEY**: (set in .env)
+- **ALPACA_PAPER_SECRET_KEY**: (set in .env)
+- **EODHD_API_KEY**: (set in .env)
+- **MASSIVE_API_KEY**: (set in .env)
+- **DB_URL**: (set in .env)
 - **DB_SCHEMA**: trading
 
 ### 2. ✅ EODHD Utility Created
@@ -78,10 +78,10 @@ Reorganized strategy buttons from sidebar to main pane:
 ### 5. ✅ Database Configuration
 
 Updated environment variables for PostgreSQL database:
-- **Host**: ***REDACTED***
-- **Database**: indurent_db
+- **Host**: (see .env)
+- **Database**: (see .env)
 - **Schema**: trading
-- **User**: ***REDACTED***
+- **User**: (see .env)
 
 SQL schemas already created in `sql/` directory:
 - `01_create_backtest_summary.sql`

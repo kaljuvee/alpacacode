@@ -59,9 +59,9 @@ Successfully built and deployed a Python Streamlit MVP application for backtesti
 - ✅ .gitignore - properly configured
 
 ## API Credentials Configured
-- ✅ Alpaca Paper Trading API (keys provided)
-- ✅ Massive API (key: ***REDACTED***)
-- ✅ XAI API (for AI Assistant features)
+- ✅ Alpaca Paper Trading API (configured in .env)
+- ✅ Massive API (configured in .env)
+- ✅ XAI API (configured in .env)
 
 ## Installation & Usage
 

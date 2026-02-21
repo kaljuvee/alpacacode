@@ -2,6 +2,13 @@
 
 Trading strategy simulator, backtester, and paper trader.
 
+## Security Rules
+
+- **NEVER** put real API keys, secrets, passwords, tokens, or database connection strings in source code, documentation, comments, commit messages, or any tracked file.
+- Credentials belong **only** in `.env` (which is gitignored). Reference them via `os.getenv()` in code and as placeholder text (e.g., `your_key_here`, `(set in .env)`) in docs.
+- When writing docs or examples that mention environment variables, use only placeholder values — never copy actual values from `.env`.
+- If you encounter hardcoded secrets in any file, immediately redact them and flag the issue.
+
 ## Stack
 
 - **Python 3.13**, virtualenv at `.venv/`

@@ -15,7 +15,7 @@ def get_historical_data(symbols: List[str], start_date: datetime,
     data = {}
     for symbol in symbols:
         try:
-            df = yf.download(symbol, start=start_date, end=end_date, progress=False)
+            df = yf.download(symbol, start=start_date, end=end_date, progress=False, multi_level_index=False)
             if not df.empty:
                 data[symbol] = df
         except Exception as e:
@@ -48,7 +48,7 @@ def backtest_vix_strategy(symbols: List[str], start_date: datetime, end_date: da
     from utils.backtester_util import calculate_metrics
     
     # Fetch VIX data
-    vix_data = yf.download('^VIX', start=start_date, end=end_date, progress=False)
+    vix_data = yf.download('^VIX', start=start_date, end=end_date, progress=False, multi_level_index=False)
     
     if vix_data.empty:
         return None

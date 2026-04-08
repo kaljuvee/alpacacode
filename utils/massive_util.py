@@ -120,7 +120,7 @@ class MassiveUtil:
             # Convert interval to yfinance format
             yf_interval = f"{interval}m"
             
-            data = yf.download(symbol, start=start_date, end=end_date, interval=yf_interval, progress=False)
+            data = yf.download(symbol, start=start_date, end=end_date, interval=yf_interval, progress=False, multi_level_index=False)
             
             if data.empty:
                 logger.warning(f"No yfinance data available for {symbol} on {start_date}")
@@ -198,7 +198,7 @@ class MassiveUtil:
             elif timeframe == 'day':
                 yf_interval = f'{interval}d'
             
-            data = yf.download(symbol, start=start_str, end=end_str, interval=yf_interval, progress=False)
+            data = yf.download(symbol, start=start_str, end=end_str, interval=yf_interval, progress=False, multi_level_index=False)
             return data
         except Exception as e:
             logger.error(f"Error getting yfinance historical for {symbol}: {e}")

@@ -484,16 +484,16 @@ if st.button("🚀 Run Backtest", type="primary", use_container_width=True):
             
             with comp_col2:
                 if portfolio_return != 0.0:
-                    delta_portfolio = metrics['total_return'] - portfolio_return
+                    delta_portfolio = portfolio_return - metrics['total_return']
                     st.metric(
                         f"Buy & Hold ({', '.join(selected_symbols[:2])}{'...' if len(selected_symbols) > 2 else ''})",
                         f"{portfolio_return:.2f}%",
                         delta=f"{delta_portfolio:+.2f}% vs Strategy"
                     )
-            
+
             with comp_col3:
                 if spy_return != 0.0:
-                    delta_spy = metrics['total_return'] - spy_return
+                    delta_spy = spy_return - metrics['total_return']
                     st.metric(
                         "Buy & Hold (SPY)",
                         f"{spy_return:.2f}%",

@@ -65,8 +65,8 @@ def calculate_metrics(trades_df: pd.DataFrame, initial_capital: float,
             'sharpe_ratio': 0.0
         }
     
-    final_capital = trades_df['capital_after'].iloc[-1]
-    total_pnl = final_capital - initial_capital
+    total_pnl = trades_df['pnl'].sum()
+    final_capital = initial_capital + total_pnl
     total_return = (total_pnl / initial_capital) * 100
     
     winning_trades = len(trades_df[trades_df['pnl'] > 0])

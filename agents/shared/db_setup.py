@@ -1,7 +1,7 @@
 """
 Database Table Setup for Agent System
 
-Creates the `trades` and `agent_runs` tables if they don't exist.
+Creates the alpacacode schema and agent tables if they don't exist.
 Uses the existing DatabasePool from utils/db/db_pool.py.
 """
 
@@ -19,8 +19,12 @@ from utils.db.db_pool import DatabasePool
 
 logger = logging.getLogger(__name__)
 
+SCHEMA_SQL = """
+CREATE SCHEMA IF NOT EXISTS alpacacode;
+"""
+
 TRADES_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS trades (
+CREATE TABLE IF NOT EXISTS alpacacode.trades (
     id SERIAL PRIMARY KEY,
     run_id VARCHAR(64) NOT NULL,
     session_id VARCHAR(64),
@@ -42,7 +46,7 @@ CREATE TABLE IF NOT EXISTS trades (
 """
 
 AGENT_RUNS_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS agent_runs (
+CREATE TABLE IF NOT EXISTS alpacacode.agent_runs (
     id SERIAL PRIMARY KEY,
     run_id VARCHAR(64) UNIQUE NOT NULL,
     mode VARCHAR(32) NOT NULL,
@@ -57,12 +61,13 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 
 
 def setup_tables(db_pool: DatabasePool = None):
-    """Create agent system tables if they don't exist."""
+    """Create alpacacode schema and agent system tables if they don't exist."""
     pool = db_pool or DatabasePool()
     with pool.get_session() as session:
+        session.execute(text(SCHEMA_SQL))
         session.execute(text(TRADES_TABLE_SQL))
         session.execute(text(AGENT_RUNS_TABLE_SQL))
-        logger.info("Agent tables created/verified: trades, agent_runs")
+        logger.info("Agent tables created/verified: alpacacode.trades, alpacacode.agent_runs")
 
 
 if __name__ == "__main__":

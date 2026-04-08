@@ -3,7 +3,7 @@
 Backtest Database Utilities
 
 This module provides utilities for storing and retrieving backtest results
-in the existing backtest_summary and individual trade tables.
+in the alpacacode.backtest_summary and alpacacode.individual_trades tables.
 """
 
 import os
@@ -65,7 +65,7 @@ class BacktestDatabaseUtil:
             # Insert backtest summary
             # Add strategy_id column if present; table must be altered separately
             insert_query = text("""
-                INSERT INTO backtest_summary (
+                INSERT INTO alpacacode.backtest_summary (
                     run_id, timestamp, model_name, start_date, end_date,
                     initial_capital, final_capital, total_pnl, return_percent,
                     total_trades, winning_trades, losing_trades, win_rate_percent,
@@ -120,7 +120,7 @@ class BacktestDatabaseUtil:
             
             # Insert individual trade
             insert_query = text("""
-                INSERT INTO individual_trades (
+                INSERT INTO alpacacode.individual_trades (
                     published_date, market, entry_time, exit_time, ticker, direction,
                     shares, entry_price, exit_price, target_price, stop_price,
                     hit_target, hit_stop, pnl, pnl_pct, capital_after,
@@ -149,7 +149,7 @@ class BacktestDatabaseUtil:
         """Retrieve backtest summary by run_id"""
         with self.db_pool.get_session() as session:
             query = text("""
-                SELECT * FROM backtest_summary WHERE run_id = :run_id
+                SELECT * FROM alpacacode.backtest_summary WHERE run_id = :run_id
             """)
             
             result = session.execute(query, {'run_id': run_id})
@@ -166,7 +166,7 @@ class BacktestDatabaseUtil:
         """Retrieve all individual trades for a run_id"""
         with self.db_pool.get_session() as session:
             query = text("""
-                SELECT * FROM individual_trades 
+                SELECT * FROM alpacacode.individual_trades 
                 WHERE runid = :run_id 
                 ORDER BY entry_time
             """)
@@ -189,7 +189,7 @@ class BacktestDatabaseUtil:
                        initial_capital, final_capital, total_pnl, return_percent, total_trades,
                        winning_trades, losing_trades, win_rate_percent, max_drawdown, 
                        sharpe_ratio, news_articles_used, price_moves_used, agent
-                FROM backtest_summary 
+                FROM alpacacode.backtest_summary 
                 ORDER BY timestamp DESC 
                 LIMIT :limit
             """)
@@ -214,7 +214,7 @@ class BacktestDatabaseUtil:
                     SUM(total_trades) as total_trades_all,
                     MIN(timestamp) as earliest_backtest,
                     MAX(timestamp) as latest_backtest
-                FROM backtest_summary
+                FROM alpacacode.backtest_summary
             """)
             
             result = session.execute(summary_query)
@@ -228,7 +228,7 @@ class BacktestDatabaseUtil:
                     COUNT(CASE WHEN pnl > 0 THEN 1 END) as profitable_trades,
                     COUNT(DISTINCT ticker) as unique_tickers,
                     COUNT(DISTINCT runid) as runs_with_trades
-                FROM individual_trades
+                FROM alpacacode.individual_trades
             """)
             
             result = session.execute(trade_query)
@@ -255,13 +255,13 @@ class BacktestDatabaseUtil:
         with self.db_pool.get_session() as session:
             # Delete individual trades first (foreign key constraint)
             delete_trades_query = text("""
-                DELETE FROM individual_trades WHERE runid = :run_id
+                DELETE FROM alpacacode.individual_trades WHERE runid = :run_id
             """)
             trades_result = session.execute(delete_trades_query, {'run_id': run_id})
             
             # Delete backtest summary
             delete_summary_query = text("""
-                DELETE FROM backtest_summary WHERE run_id = :run_id
+                DELETE FROM alpacacode.backtest_summary WHERE run_id = :run_id
             """)
             summary_result = session.execute(delete_summary_query, {'run_id': run_id})
             
